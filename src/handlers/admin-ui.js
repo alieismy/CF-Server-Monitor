@@ -1122,11 +1122,51 @@ export async function handleAdminUI(request, env, sys) {
         </div>
       </div>
     </div>
+
+    <!-- 删除确认模态框 -->
+    <div id="deleteModal" class="modal-overlay">
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title">$ rm -rf /etc/server.conf</div>
+          <button class="modal-close" onclick="closeDeleteModal()">✕</button>
+        </div>
+        <input type="hidden" id="deleteServerId">
+        
+        <div style="margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+            <span style="color: var(--accent-red); font-size: 20px;">⚠️</span>
+            <span style="color: var(--accent-red); font-weight: 600;">危险操作警告</span>
+          </div>
+          <p style="color: var(--text-secondary); font-size: 12px; line-height: 1.6;">
+            删除此服务器将从监控面板中移除该服务器的所有数据。
+            <br><br>
+            <strong style="color: var(--text-primary);">建议先在目标服务器上执行卸载命令，以停止探针服务：</strong>
+          </p>
+        </div>
+        
+        <div class="cmd-input-wrapper" style="margin-bottom: 12px;">
+          <span class="cmd-prompt">$</span>
+          <input type="text" readonly id="uninstallCmd" class="cmd-input" style="flex: 1;">
+          <button onclick="copyUninstallCmd()" class="btn btn-icon btn-green" title="复制命令" style="margin-left: 8px;">📋</button>
+        </div>
+        
+        <p style="color: var(--text-muted); font-size: 11px; margin-bottom: 16px;">
+          <span style="color: var(--accent-yellow);">[i]</span> 点击左侧"复制"按钮即可复制卸载命令到剪贴板。
+        </p>
+        
+        <div class="modal-footer" style="justify-content: space-between;">
+          <button onclick="confirmDelete()" class="btn btn-red">确认删除</button>
+          <button onclick="closeDeleteModal()" class="btn">取消</button>
+        </div>
+      </div>
+    </div>
   </div>
 
     ${getFooterHtml()}
 
   <script>
+    const HOST = '${host}';
+    
     // Tab 切换
     function switchTab(tabName) {
       document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -1224,8 +1264,18 @@ export async function handleAdminUI(request, env, sys) {
     }
     
     // 删除服务器
-    async function deleteServer(id) {
-      if (!confirm('[?] Delete this server? This action is irreversible.')) return;
+    function deleteServer(id) {
+      document.getElementById('deleteServerId').value = id;
+      document.getElementById('uninstallCmd').value = 'curl -sL ' + HOST + '/install.sh | bash -s uninstall';
+      document.getElementById('deleteModal').style.display = 'block';
+    }
+    
+    function closeDeleteModal() {
+      document.getElementById('deleteModal').style.display = 'none';
+    }
+    
+    async function confirmDelete() {
+      const id = document.getElementById('deleteServerId').value;
       
       try {
         const res = await fetch('/admin/api', { 
@@ -1238,6 +1288,27 @@ export async function handleAdminUI(request, env, sys) {
       } catch(e) {
         alert('[ERROR] Delete failed: ' + e.message);
       }
+    }
+    
+    function copyUninstallCmd() {
+      const input = document.getElementById('uninstallCmd');
+      input.select(); 
+      input.setSelectionRange(0, 99999);
+      
+      try {
+        navigator.clipboard.writeText(input.value);
+      } catch(e) {
+        document.execCommand('copy');
+      }
+      
+      const btn = event.target;
+      const originalText = btn.innerText;
+      btn.innerText = '✓';
+      btn.style.color = 'var(--accent-green)';
+      setTimeout(() => { 
+        btn.innerText = originalText; 
+        btn.style.color = '';
+      }, 1500);
     }
     
     // 批量删除
@@ -1373,6 +1444,9 @@ export async function handleAdminUI(request, env, sys) {
     window.onclick = function(event) {
       if (event.target == document.getElementById('editModal')) {
         closeModal();
+      }
+      if (event.target == document.getElementById('deleteModal')) {
+        closeDeleteModal();
       }
     }
     
