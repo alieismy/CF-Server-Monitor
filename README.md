@@ -4,7 +4,7 @@
 
 **演示地址**：[https://tz.dashdeep.dpdns.org/](https://tz.dashdeep.dpdns.org/)
 
-一个基于 Cloudflare Workers + D1 的多服务器监控探针系统，支持实时监控、历史数据查看、延迟追踪、地图展示等功能。
+一个基于 Cloudflare Workers + D1 的多服务器监控探针系统，支持实时监控、历史数据查看、延迟追踪、地图展示等功能。兼容主流Linux系统，Alpine Linux，Windows系统
 
 ## ✨ 功能特点
 
@@ -22,66 +22,27 @@
 - 🔐 **Turnstile 验证**：集成 Cloudflare Turnstile 人机验证，增强 API 安全性
 - 🔑 **JWT 认证**：登录系统采用 JWT token 认证，支持自定义密钥
 
-## 📁 项目结构
-
-```
-CF-Server-Monitor/
-├── public/
-│   ├── cf-server-monitor.pyw   # Windows 探针脚本（.pyw 不显示 CMD 窗口）
-│   ├── install.sh              # 一键安装脚本（含卸载）
-│   └── logo.svg                # Logo
-├── src/
-│   ├── index.js                # 后端主入口 - 路由分发
-│   ├── database/
-│   │   ├── schema.js           # 数据库初始化、历史数据存储
-│   │   └── updateDatabase.js   # 数据库升级处理
-│   ├── middleware/
-│   │   └── auth.js             # 认证中间件
-│   ├── handlers/
-│   │   ├── admin.js            # 后台管理 API
-│   │   ├── dashboard.js        # 前台大盘 API
-│   │   ├── frontend.js         # 前端资源服务
-│   │   └── update.js           # 数据上报处理
-│   ├── services/
-│   │   └── notification.js     # 通知服务
-│   ├── utils/
-│   │   ├── cache.js            # 缓存工具
-│   │   └── settings.js         # 设置管理
-│   └── frontend/               # Vue 3 前端应用
-│       ├── components/         # Vue 组件
-│       │   ├── Footer.vue
-│       │   ├── ServerCard.vue
-│       │   └── TerminalHeader.vue
-│       ├── views/              # 页面视图
-│       │   ├── Admin.vue
-│       │   ├── Dashboard.vue
-│       │   └── ServerDetail.vue
-│       ├── router/
-│       │   └── index.js        # Vue Router 配置
-│       ├── utils/
-│       │   ├── api.js          # API 请求封装
-│       │   └── i18n.js         # 国际化配置
-│       ├── styles/             # 样式文件
-│       │   ├── light.css
-│       │   └── main.css
-│       ├── App.vue             # 根组件
-│       └── main.js             # 前端入口
-├── scripts/
-│   └── build.js                # 前端构建脚本
-├── test/
-│   ├── README.md               # 测试工具说明
-│   └── generate-sql.js         # 测试数据生成工具
-├── index.html
-├── jsconfig.json               # JS 配置
-├── package.json
-├── vite.config.js              # Vite 配置
-├── wrangler.toml               # 本地测试 wrangler 配置
-└── .github/
-    └── workflows/
-        └── deploy.yml          # GitHub Actions 自动部署
-```
-
 ## 🚀 快速开始
+
+<details>
+<summary>方式一：一键部署</summary>
+
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/huilang-me/CF-Server-Monitor)
+
+新用户点击一键部署
+
+修改API_USER_NAME用户名和API_SECRET密码
+
+在build command中填入 `npm run build:frontend`
+
+点击部署即可
+
+
+</details>
+
+<details>
+<summary>方式二：GitHub Action 自动部署</summary>
 
 ### 前置要求
 
@@ -139,22 +100,6 @@ CF-Server-Monitor/
 | `API_SECRET`     | 自定义密码（如 `MyMonitor2024!`） | 探针认证密钥 & 管理后台密码   |
 | `D1_DATABASE_ID` | 第二步获取的 Database ID        | D1 数据库 ID         |
 
-### Turnstile 配置（可选）
-
-如需启用 Turnstile 人机验证，需在管理后台配置：
-
-1. 登录 [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile)
-2. 创建站点，获取 **Site Key** 和 **Secret Key**
-3. 在管理后台 → 全局设置中启用 Turnstile 并填入密钥
-
-### JWT 配置（可选）
-
-如需自定义 JWT 密钥：
-
-1. 生成一个至少 32 位的随机字符串作为 JWT Secret
-2. 在管理后台 → 全局设置中填入 JWT Secret
-3. 保存后系统将使用自定义密钥进行 token 签名
-
 ### 第五步：部署
 
 #### 方式一：自动部署
@@ -199,8 +144,13 @@ https://你的项目名.你的子域.workers.dev/admin
 - 密码：你设置的 `API_SECRET`
 
 > **提示**：项目名和子域可以在 Cloudflare Workers & Pages 页面找到。
+</details>
 
-## 🖥️ 添加服务器监控
+
+## 📊 使用说明
+
+<details>
+<summary>🖥️ 添加服务器监控</summary>
 
 ### 在管理后台添加服务器
 
@@ -209,31 +159,20 @@ https://你的项目名.你的子域.workers.dev/admin
 3. 点击 **+ 添加服务器**
 4. 点击新服务器旁的 **📋** 按钮复制安装命令
 
-### 在目标服务器上安装探针
+### Linux系统
+
+Ubuntu / Debian / CentOS / RHEL / Fedora / Rocky / AlmaLinux 系统
 
 ```bash
-# 粘贴从管理后台复制的命令，类似：
 curl -sL https://你的项目.你的子域.workers.dev/install.sh | bash -s install <SERVER_ID> <SECRET> <WORKER_URL> [INTERVAL]
 ```
 
-**参数说明：**
-
-| 参数           | 说明              | 默认值  |
-| ------------ | --------------- | ---- |
-| `SERVER_ID`  | 服务器唯一标识符（必填）    | -    |
-| `SECRET`     | API 认证密钥（必填）    | -    |
-| `WORKER_URL` | Worker 上报地址（必填） | -    |
-| `INTERVAL`   | 数据上报间隔（秒）       | `60` |
-
-> **注意**：上报间隔越短，数据越实时，但会增加 API 调用和数据库存储。建议根据服务器数量和网络状况选择合适的间隔。
-
-支持的系统：Ubuntu / Debian / CentOS / RHEL / Fedora / Rocky / AlmaLinux
-
-### 卸载探针
+Alpine 系统
 
 ```bash
-curl -sL https://你的项目.你的子域.workers.dev/install.sh | bash -s uninstall
+curl -sL https://你的项目.你的子域.workers.dev/install-alpine | sh -s install <SERVER_ID> <SECRET> <WORKER_URL> [INTERVAL]
 ```
+
 
 ### Windows 系统安装
 
@@ -248,18 +187,66 @@ curl -sL https://你的项目.你的子域.workers.dev/install.sh | bash -s unin
 #### 运行探针
 双击`cf-server-monitor.pyw`文件即可启动探针。
 
-> **注意**：详细配置说明请参考 [GitHub Issue #9](https://github.com/huilang-me/CF-Server-Monitor/issues/9#issuecomment-4620016171)
 
 
-## 📊 使用说明
+**参数说明：**
 
-### 语言切换
+| 参数           | 说明              | 默认值  |
+| ------------ | --------------- | ---- |
+| `SERVER_ID`  | 服务器唯一标识符（必填）    | -    |
+| `SECRET`     | API 认证密钥（必填）    | -    |
+| `WORKER_URL` | Worker 上报地址（必填） | -    |
+| `INTERVAL`   | 数据上报间隔（秒）       | `60` |
 
-支持中文和英文界面切换：
+> **注意**：上报间隔越短，数据越实时，但会增加 API 调用和数据库存储。建议根据服务器数量和网络状况选择合适的间隔。
+</details>
 
-1. 点击界面右上角的语言切换按钮
-2. 可实时在中文和英文之间切换
-3. 语言设置会保存在浏览器本地
+<details>
+<summary>卸载探针</summary>
+
+Ubuntu / Debian / CentOS / RHEL / Fedora / Rocky / AlmaLinux 系统
+
+```bash
+curl -sL https://你的项目.你的子域.workers.dev/install.sh | bash -s uninstall
+```
+
+Alpine 系统
+
+```bash
+curl -sL https://你的项目.你的子域.workers.dev/install-alpine | sh -s uninstall
+```
+
+Windows 系统
+
+启动cf-server-monitor.pyw后，GUI中关闭自启动（如已开启）。点删除，再删除这个文件即可
+
+</details>
+
+
+<details>
+<summary>安全增强</summary>
+
+### Turnstile 配置（可选）
+
+如需启用 Turnstile 人机验证，可用基本拦截恶意攻击避免额度超出，需在管理后台配置：
+
+1. 登录 [Cloudflare Turnstile](https://dash.cloudflare.com/?to=/:account/turnstile)
+2. 创建站点，获取 **Site Key** 和 **Secret Key**
+3. 在管理后台 → 全局设置中启用 Turnstile 并填入密钥
+
+
+### JWT 配置（可选）
+
+如需自定义 JWT 密钥：
+
+1. 生成一个至少 32 位的随机字符串作为 JWT Secret
+2. 在管理后台 → 全局设置中填入 JWT Secret
+3. 保存后系统将使用自定义密钥进行 token 签名
+
+</details>
+
+<details>
+<summary>其他设置</summary>
 
 ### 前台大盘
 
@@ -333,7 +320,122 @@ curl -sL https://你的项目.你的子域.workers.dev/install.sh | bash -s unin
 2. 填入 Bot Token 字段
 3. Chat ID 留空
 
+</details>
+
+<details>
+<summary>定时任务</summary>
+
+
+系统包含以下定时任务（UTC 时区）：
+
+| 任务   | 触发时间          | 说明                       |
+| ---- | ------------- | ------------------------ |
+| 数据清理 | `50 23 * * *` | 每天UTC 23:50 清理 3 天前的历史数据 |
+| 离线检测 | `*/1 * * * *` | 每分钟检测离线节点并发送告警           |
+
+</details>
+
+
+## 📁 项目结构
+<details>
+<summary>项目结构</summary>
+
+```
+CF-Server-Monitor/
+├── public/
+│   ├── cf-server-monitor.pyw   # Windows 探针脚本（.pyw 不显示 CMD 窗口）
+│   ├── install.sh              # 一键安装脚本（含卸载）
+│   └── logo.svg                # Logo
+├── src/
+│   ├── index.js                # 后端主入口 - 路由分发
+│   ├── database/
+│   │   ├── schema.js           # 数据库初始化、历史数据存储
+│   │   └── updateDatabase.js   # 数据库升级处理
+│   ├── middleware/
+│   │   └── auth.js             # 认证中间件
+│   ├── handlers/
+│   │   ├── admin.js            # 后台管理 API
+│   │   ├── dashboard.js        # 前台大盘 API
+│   │   ├── frontend.js         # 前端资源服务
+│   │   └── update.js           # 数据上报处理
+│   ├── services/
+│   │   └── notification.js     # 通知服务
+│   ├── utils/
+│   │   ├── cache.js            # 缓存工具
+│   │   └── settings.js         # 设置管理
+│   └── frontend/               # Vue 3 前端应用
+│       ├── components/         # Vue 组件
+│       │   ├── Footer.vue
+│       │   ├── ServerCard.vue
+│       │   └── TerminalHeader.vue
+│       ├── views/              # 页面视图
+│       │   ├── Admin.vue
+│       │   ├── Dashboard.vue
+│       │   └── ServerDetail.vue
+│       ├── router/
+│       │   └── index.js        # Vue Router 配置
+│       ├── utils/
+│       │   ├── api.js          # API 请求封装
+│       │   └── i18n.js         # 国际化配置
+│       ├── styles/             # 样式文件
+│       │   ├── light.css
+│       │   └── main.css
+│       ├── App.vue             # 根组件
+│       └── main.js             # 前端入口
+├── scripts/
+│   └── build.js                # 前端构建脚本
+├── test/
+│   ├── README.md               # 测试工具说明
+│   └── generate-sql.js         # 测试数据生成工具
+├── index.html
+├── jsconfig.json               # JS 配置
+├── package.json
+├── vite.config.js              # Vite 配置
+├── wrangler.toml               # 本地测试 wrangler 配置
+└── .github/
+    └── workflows/
+        └── deploy.yml          # GitHub Actions 自动部署
+```
+
+</details>
+
+
+<details>
+<summary>常见问题</summary>
+
+**Q: 探针安装后不显示数据？**
+
+检查服务器是否能访问 Worker URL，查看探针日志：`journalctl -u cf-probe -f`
+
+**Q: 如何更换 API\_SECRET？**
+
+更新 GitHub Secrets 中的 `API_SECRET`，重新部署，并在所有服务器上重新安装探针。
+
+**Q: D1 数据库免费额度够用吗？**
+
+Cloudflare D1 免费版提供 5GB 存储和 5M 读取行/日、100K 写入行/日，足以支持服务器监控。
+
+写入行：1台服务器一天占用写入行是4.32k，免费写入额度是100k/天，理论上可用支持23台服务器的监控，如果修改上报频率为120秒可用翻倍。
+
+读取行：1台服务器一天占用读行是8k左右，如果开启站点兼容，大概是1.6k，免费读行是5M/天，非常充裕
+主要是前端访问消耗的次数，限制了非登录用户1小时以上的查看，只要不被暴力刷额度，绝对够用，如果不放心，可用在后台开启Turnstile人机验证，或者也可以选择仅登录查看
+
+**Q: D1 数据库免费额度超出扣费吗？**
+
+超出不扣费，只会限制访问，第二天北京时间08:00重置
+
+**Q: 遇到其他异常问题怎么办？**
+
+可以尝试在后台数据库管理中：
+- 升级数据库：尝试修复数据库结构问题
+- 重置数据库：清空并重建数据库（⚠️ 注意：此操作将清除所有数据，请确保已备份重要信息）
+
+</details>
+
 ## 📸 界面预览
+<details>
+<summary>界面预览</summary>
+
 ![image](https://github.com/user-attachments/assets/0527f847-4631-47ad-8315-3f80ebba42d2)
 ![image](https://github.com/user-attachments/assets/a9c1aefd-42f7-4805-aa42-bbe9e58aed59)
 ![image](https://github.com/user-attachments/assets/527bcf04-3124-4f1c-b052-451bccae961d)
@@ -347,7 +449,11 @@ curl -sL https://你的项目.你的子域.workers.dev/install.sh | bash -s unin
 ![image](https://github.com/user-attachments/assets/e100d984-3165-4f38-948a-625249b4600a)
 ![image](https://github.com/user-attachments/assets/7d266ff3-0db7-477b-8029-c76e42298002)
 
+</details>
+
 ## 🛠️ 本地开发
+<details>
+<summary>本地开发步骤</summary>
 
 ### 环境要求
 
@@ -388,31 +494,7 @@ wrangler d1 execute server-monitor-db --local --file=test/mock-data.sql
 ```
 
 详细步骤见 [test/README.md](test/README.md)
-
-## ⏰ 定时任务
-
-系统包含以下定时任务（UTC 时区）：
-
-| 任务   | 触发时间          | 说明                       |
-| ---- | ------------- | ------------------------ |
-| 数据清理 | `50 23 * * *` | 每天UTC 23:50 清理 3 天前的历史数据 |
-| 离线检测 | `*/1 * * * *` | 每分钟检测离线节点并发送告警           |
-
-## ❓ 常见问题
-
-**Q: 探针安装后不显示数据？**
-A: 检查服务器是否能访问 Worker URL，查看探针日志：`journalctl -u cf-probe -f`
-
-**Q: 如何更换 API\_SECRET？**
-A: 更新 GitHub Secrets 中的 `API_SECRET`，重新部署，并在所有服务器上重新安装探针。
-
-**Q: D1 数据库免费额度够用吗？**
-A: Cloudflare D1 免费版提供 5GB 存储和 5M 读取行/日、100K 写入行/日，足以支持服务器监控。
-
-**Q: 遇到其他异常问题怎么办？**
-A: 可以尝试在后台数据库管理中：
-- 升级数据库：尝试修复数据库结构问题
-- 重置数据库：清空并重建数据库（⚠️ 注意：此操作将清除所有数据，请确保已备份重要信息）
+</details>
 
 
 ## 📄 许可证

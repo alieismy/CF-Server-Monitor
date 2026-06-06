@@ -1,7 +1,7 @@
 #!/bin/sh
 # ==============================================================================
 # V1.0.1
-# CF-Server-Monitor-Pro 安装/卸载脚本 (Alpine Linux 兼容版)
+# CF-Server-Monitor 安装/卸载脚本 (Alpine Linux 兼容版)
 # 支持: Alpine Linux (OpenRC / 裸机 / Docker 容器)
 # Fixes: 1. 独立协程无 wait 阻塞 2. 原子化原子覆盖 3. 兼容 OpenRC/无 init 场景
 #        4. 严格 set -u 闭环 5. 自动安装 bash 保证探针脚本语法兼容
