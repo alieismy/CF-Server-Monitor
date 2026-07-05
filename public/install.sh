@@ -379,7 +379,7 @@ get_gpu_metrics() {
 
 get_http_ping() { 
     local rtt
-    rtt=$(curl -o /dev/null -s -m 1 --connect-timeout 1 -w "%{time_total}" "http://${1:-}" 2>/dev/null | awk '{printf "%.0f", $1*1000}')
+    rtt=$(curl -o /dev/null -s -m 3 --connect-timeout 2 -w "%{time_total}" "http://${1:-}" 2>/dev/null | awk '{printf "%.0f", $1*1000}')
     if [ -n "$rtt" ] && [ "$rtt" -gt 0 ] 2>/dev/null; then
         echo "$rtt"
     else
@@ -435,25 +435,22 @@ get_ping() {
 
 get_packet_loss() {
     local host="${1:-}"
-    local count="${2:-5}"
+    local count="${2:-4}"
 
-    if [ -z "$host" ] || ! command -v ping >/dev/null 2>&1; then
+    if [ -z "$host" ]; then
         echo ""
         return
     fi
 
-    ping -c "$count" -W 1 "$host" 2>/dev/null | awk -F',' '/packet loss/{
-        for (i=1; i<=NF; i++) {
-            if ($i ~ /packet loss/) {
-                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
-                split($i, a, "%")
-                gsub(/[^0-9.]/, "", a[1])
-                if (a[1] != "") {
-                    printf "%.0f\n", a[1]
-                }
-            }
-        }
-    }'
+    local ok=0
+    local i=1
+    while [ "$i" -le "$count" ]; do
+        if get_ping "$host" 2>/dev/null | grep -qE '^[0-9]+$'; then
+            ok=$((ok + 1))
+        fi
+        i=$((i + 1))
+    done
+    echo $(( (count - ok) * 100 / count ))
 }
 
 # 测试节点定义（支持参数覆盖，空值则跳过）
@@ -970,7 +967,7 @@ EOF
     echo -e "  服务状态 : ${GREEN}Active (Running)${NC}"
     echo -e "  配置参数 :"
     echo -e "    ● Server ID   : ${SERVER_ID}"
-    echo -e "    ● Secret      : ${SECRET}"
+    echo -e "    ● Secret      : ********"
     echo -e "    ● Worker URL  : ${WORKER_URL}"
     echo -e "    ● 上报间隔    : ${REPORT_INTERVAL}秒"
     printf  '    ● 采样间隔    : %s秒\n' "${COLLECT_INTERVAL}"

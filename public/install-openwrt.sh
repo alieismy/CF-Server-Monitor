@@ -535,7 +535,7 @@ get_cpu_stat() {
 }
 
 get_http_ping() {
-    rtt=$(curl -o /dev/null -s -m 1 --connect-timeout 1 -w "%{time_total}" "http://${1:-}" 2>/dev/null | awk '{printf "%.0f", $1*1000}')
+    rtt=$(curl -o /dev/null -s -m 3 --connect-timeout 2 -w "%{time_total}" "http://${1:-}" 2>/dev/null | awk '{printf "%.0f", $1*1000}')
     if [ -n "$rtt" ] && [ "$rtt" -gt 0 ] 2>/dev/null; then
         echo "$rtt"
     else
@@ -591,30 +591,22 @@ get_ping() {
 
 get_packet_loss() {
     host="${1:-}"
-    count="${2:-5}"
+    count="${2:-4}"
 
-    if [ -z "$host" ] || ! command -v ping >/dev/null 2>&1; then
+    if [ -z "$host" ]; then
         echo ""
         return
     fi
 
-    timeout_arg=""
-    if ping -W 1 -c 1 127.0.0.1 >/dev/null 2>&1; then
-        timeout_arg="-W 1"
-    fi
-
-    ping -c "$count" $timeout_arg "$host" 2>/dev/null | awk -F',' '/packet loss/{
-        for (i=1; i<=NF; i++) {
-            if ($i ~ /packet loss/) {
-                gsub(/^[[:space:]]+|[[:space:]]+$/, "", $i)
-                split($i, a, "%")
-                gsub(/[^0-9.]/, "", a[1])
-                if (a[1] != "") {
-                    printf "%.0f\n", a[1]
-                }
-            }
-        }
-    }'
+    ok=0
+    i=1
+    while [ "$i" -le "$count" ]; do
+        if get_ping "$host" 2>/dev/null | grep -qE '^[0-9]+$'; then
+            ok=$((ok + 1))
+        fi
+        i=$((i + 1))
+    done
+    echo $(( (count - ok) * 100 / count ))
 }
 
 CT_NODE="${CT_NODE:-}"
@@ -1008,7 +1000,7 @@ start_service() {
     service_running=0
     if command -v pgrep >/dev/null 2>&1 && pgrep -f "${SERVICE_NAME}.sh" >/dev/null 2>&1; then
         service_running=1
-    elif [ "$INIT_SYSTEM" = "procd" ] && command -v ubus >/dev/null 2>&1 && ubus call service list >/dev/null 2>&1 | grep -q "\"${SERVICE_NAME}\""; then
+    elif [ "$INIT_SYSTEM" = "procd" ] && command -v ubus >/dev/null 2>&1 && ubus call service list 2>/dev/null | grep -q "\"${SERVICE_NAME}\""; then
         service_running=1
     elif [ "$INIT_SYSTEM" = "procd" ] && [ -f "$PROCD_FILE" ] && "$PROCD_FILE" status >/dev/null 2>&1; then
         service_running=1
@@ -1222,7 +1214,7 @@ EOF
     printf  '  服务状态 : %bActive (Running)%b\n' "${GREEN}" "${NC}"
     printf  '  配置参数 :\n'
     printf  '    ● Server ID   : %s\n' "${SERVER_ID}"
-    printf  '    ● Secret      : %s\n' "${SECRET}"
+    printf  '    ● Secret      : %s\n' "********"
     printf  '    ● Worker URL  : %s\n' "${WORKER_URL}"
     printf  '    ● 上报间隔    : %s秒\n' "${REPORT_INTERVAL}"
     printf  '    ● 采样间隔    : %s秒\n' "${COLLECT_INTERVAL}"

@@ -1,4 +1,4 @@
-import { initDatabase, monthlyCleanup, dropMetricsHistoryOld, getMetricsHistory, rebuildDatabase } from './database/schema.js';
+import { initDatabase, weeklyCleanup, getMetricsHistory, rebuildDatabase } from './database/schema.js';
 import { checkOfflineNodes, checkExpiringServers } from './services/notification.js';
 import { updateDatabase } from './database/updateDatabase.js';
 import { handleAdminAPI } from './handlers/admin.js';
@@ -339,19 +339,13 @@ export default {
       debug('[Cron] 离线节点检测完成');
     } else if (cron === '0 * * * *') {
       const now = new Date();
-      const day = now.getUTCDate();
+      const day = now.getUTCDay();
       const hour = now.getUTCHours();
       
-      if (day === 1 && hour === 0) {
-        debug('[Cron] 开始执行每月数据清理任务（表轮换）');
-        await monthlyCleanup(env.DB);
-        debug('[Cron] 每月数据清理任务完成');
-      }
-      
-      if (day === 8 && hour === 0) {
-        debug('[Cron] 开始执行每月8号清理旧表任务');
-        await dropMetricsHistoryOld(env.DB);
-        debug('[Cron] 每月8号清理旧表任务完成');
+      if (day === 0 && hour === 0) {
+        debug('[Cron] 开始执行每周数据清理任务（表轮换）');
+        await weeklyCleanup(env.DB);
+        debug('[Cron] 每周数据清理任务完成');
       }
       
       if (hour === 12) {
@@ -360,14 +354,10 @@ export default {
         debug('[Cron] 服务器到期检测完成');
       }
     }else if(env.DEBUG == 1){
-      if (cron === '* * 1 * *') {
-        debug('[Cron DEBUG] 开始执行每月数据清理任务（表轮换）');
-        await monthlyCleanup(env.DB);
-        debug('[Cron DEBUG] 每月数据清理任务完成');
-      } else if (cron === '* * 8 * *') {
-        debug('[Cron DEBUG] 开始执行每月8号清理旧表任务');
-        await dropMetricsHistoryOld(env.DB);
-        debug('[Cron DEBUG] 每月8号清理旧表任务完成');
+      if (cron === '0 0 * * 0') {
+        debug('[Cron DEBUG] 开始执行每周数据清理任务（表轮换）');
+        await weeklyCleanup(env.DB);
+        debug('[Cron DEBUG] 每周数据清理任务完成');
       } else if (cron === '0 12 * * *') {
         debug('[Cron DEBUG] 开始执行服务器到期检测');
         await checkExpiringServers(env.DB);

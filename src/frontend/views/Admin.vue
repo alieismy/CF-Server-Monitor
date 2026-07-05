@@ -177,7 +177,7 @@
                         <img :src="'https://flagcdn.com/24x18/' + getFlagRegionCode(server.region) + '.png'" :alt="server.region" class="flag-img">
                       </span>
                       <span v-else>🏳️</span>
-                      <router-link :to="'/server/' + server.id" class="server-name-link">{{ server.name }}</router-link>
+                      <router-link :to="'/server/' + server.id + (selectedApiIndex ? '?apiIndex=' + selectedApiIndex : '')" class="server-name-link">{{ server.name }}</router-link>
                     </div>
                   </td>
                   <td><span class="group-tag">{{ server.server_group || trans.default }}</span></td>

@@ -1233,14 +1233,12 @@ Worker 同时注册了 cron 触发器（`scheduled` handler），可在 `wrangle
 | ------------- | --------------- | -------------------------------------------------------------- |
 | `*/1 * * * *` | 每分钟：检测离线节点      | `checkOfflineNodes`（通知）                                        |
 | `0 * * * *`   | 每小时：根据 UTC 日期分支 | 见下表                                                            |
-| <br />        | 每月 1 号 0 点：表轮换  | `monthlyCleanup`（重命名 metrics\_history → metrics\_history\_old） |
-| <br />        | 每月 8 号 0 点：删除旧表 | `dropMetricsHistoryOld`                                        |
+| <br />        | 每周日 0 点：表轮换    | `weeklyCleanup`（删除旧表、重命名 metrics\_history → metrics\_history\_old、创建新表） |
 | <br />        | 每天 12 点：服务器到期检测 | `checkExpiringServers`                                         |
 
 DEBUG 模式（`env.DEBUG=1`）下额外提供：
 
-- `* * 1 * *` → monthlyCleanup
-- `* * 8 * *` → dropMetricsHistoryOld
+- `0 0 * * 0` → weeklyCleanup
 - `0 12 * * *` → checkExpiringServers
 
 ***

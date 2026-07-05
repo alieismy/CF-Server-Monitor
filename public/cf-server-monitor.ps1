@@ -17,7 +17,7 @@
 .PARAMETER Url
     Worker 上报地址
 .PARAMETER CollectInterval
-    采样间隔（秒），默认 0
+    保留参数。Windows PowerShell 版不使用 samples 采样缓存，始终按上报间隔采集并上报。
 .PARAMETER ReportInterval
     上报间隔（秒），默认 60
 .PARAMETER PingType
@@ -216,6 +216,15 @@ function Invoke-AsAdmin {
     if ($Id) { $argList += " -Id `"$Id`"" }
     if ($Secret) { $argList += " -Secret `"$Secret`"" }
     if ($Url) { $argList += " -Url `"$Url`"" }
+    if ($ReportInterval -and $ReportInterval -ne "60") { $argList += " -ReportInterval `"$ReportInterval`"" }
+    if ($PingType -and $PingType -ne "tcp") { $argList += " -PingType `"$PingType`"" }
+    if ($ResetDay -and $ResetDay -ne "1") { $argList += " -ResetDay `"$ResetDay`"" }
+    if ($RxCorrection) { $argList += " -RxCorrection `"$RxCorrection`"" }
+    if ($TxCorrection) { $argList += " -TxCorrection `"$TxCorrection`"" }
+    if ($CtNode) { $argList += " -CtNode `"$CtNode`"" }
+    if ($CuNode) { $argList += " -CuNode `"$CuNode`"" }
+    if ($CmNode) { $argList += " -CmNode `"$CmNode`"" }
+    if ($BdNode) { $argList += " -BdNode `"$BdNode`"" }
     Start-Process powershell.exe -Verb RunAs -ArgumentList $argList -Wait
 }
 
@@ -497,19 +506,15 @@ function Start-PingBackgroundJob {
         }
 
         function Get-PacketLoss {
-            param([string]$TargetHost, [int]$Count = 5)
+            param([string]$TargetHost, [string]$PingType, [int]$Count = 4)
             $TargetHost = $TargetHost.Trim()
             if (-not $TargetHost) { return "" }
-            try {
-                $result = ping -n $Count -w 1000 $TargetHost 2>$null
-                $lossLine = $result | Select-String "(?:Lost|丢失)\s*=\s*(\d+)"
-                if ($lossLine) {
-                    $lost = [int]$lossLine.Matches[0].Groups[1].Value
-                    $pct = [math]::Round(($lost / $Count) * 100)
-                    return $pct.ToString()
-                }
-            } catch {}
-            return ""
+            $ok = 0
+            for ($i = 0; $i -lt $Count; $i++) {
+                $r = Get-Ping -TargetHost $TargetHost -PingType $PingType
+                if ($r -match '^\d+$') { $ok++ }
+            }
+            return [math]::Round(($Count - $ok) / $Count * 100).ToString()
         }
 
         $result = @{
@@ -517,10 +522,10 @@ function Start-PingBackgroundJob {
             cu_ping = Get-Ping -TargetHost $cu -PingType $pingType
             cm_ping = Get-Ping -TargetHost $cm -PingType $pingType
             bd_ping = Get-Ping -TargetHost $bd -PingType $pingType
-            ct_loss = Get-PacketLoss -TargetHost $ct
-            cu_loss = Get-PacketLoss -TargetHost $cu
-            cm_loss = Get-PacketLoss -TargetHost $cm
-            bd_loss = Get-PacketLoss -TargetHost $bd
+            ct_loss = Get-PacketLoss -TargetHost $ct -PingType $pingType
+            cu_loss = Get-PacketLoss -TargetHost $cu -PingType $pingType
+            cm_loss = Get-PacketLoss -TargetHost $cm -PingType $pingType
+            bd_loss = Get-PacketLoss -TargetHost $bd -PingType $pingType
             timestamp = [DateTimeOffset]::Now.ToUnixTimeSeconds()
         }
 
@@ -628,16 +633,22 @@ function Get-PeriodStartTimestamp {
     return [long]([DateTimeOffset]::new($start).ToUnixTimeSeconds())
 }
 
+function Convert-ToLongOrDefault {
+    param($Value, [long]$Default = 0)
+    if ($null -eq $Value -or $Value -eq "") { return $Default }
+    try { return [long]$Value } catch { return $Default }
+}
+
 function Update-MonthlyTraffic {
     param([long]$CurrentRx, [long]$CurrentTx, [int]$ResetDay)
     $nowTs = [long]([DateTimeOffset]::Now.ToUnixTimeSeconds())
     $saved = Get-TrafficData
-    $savedRxPrev = [long]($saved["RX_PREV"] -as [long] -or 0)
-    $savedTxPrev = [long]($saved["TX_PREV"] -as [long] -or 0)
-    $savedRxPeriod = [long]($saved["RX_PERIOD"] -as [long] -or 0)
-    $savedTxPeriod = [long]($saved["TX_PERIOD"] -as [long] -or 0)
-    $savedLastCheck = [long]($saved["LAST_CHECK"] -as [long] -or 0)
-    $savedPeriodStart = [long]($saved["PERIOD_START"] -as [long] -or 0)
+    $savedRxPrev = Convert-ToLongOrDefault $saved["RX_PREV"]
+    $savedTxPrev = Convert-ToLongOrDefault $saved["TX_PREV"]
+    $savedRxPeriod = Convert-ToLongOrDefault $saved["RX_PERIOD"]
+    $savedTxPeriod = Convert-ToLongOrDefault $saved["TX_PERIOD"]
+    $savedLastCheck = Convert-ToLongOrDefault $saved["LAST_CHECK"]
+    $savedPeriodStart = Convert-ToLongOrDefault $saved["PERIOD_START"]
 
     $periodStart = Get-PeriodStartTimestamp -ResetDay $ResetDay -NowTs $nowTs
     $rxDelta = 0; $txDelta = 0
@@ -745,7 +756,7 @@ function Start-TimerCollectLoop {
             server_id = $Id
             secret = $Secret
             worker_url = $Url
-            collect_interval = [int]$CollectInterval
+            collect_interval = 0
             report_interval = [int]$ReportInterval
             ping_type = $PingType
             reset_day = [int]$ResetDay
@@ -754,7 +765,7 @@ function Start-TimerCollectLoop {
             cm_node = if ($CmNode) { $CmNode } else { $DEFAULT_CM }
             bd_node = if ($BdNode) { $BdNode } else { $DEFAULT_BD }
         }
-        Save-Config -Data $config
+        Save-Config -Config $config
         Write-Log "已保存配置到: $CONFIG_FILE" "INFO"
     }
 
@@ -762,13 +773,7 @@ function Start-TimerCollectLoop {
     $secret = if ($Secret) { $Secret } else { $config.secret }
     $workerUrl = if ($Url) { $Url.Trim().Trim("'").Trim('"') } else { $config.worker_url.Trim().Trim("'").Trim('"') }
 
-    if ($PSBoundParameters.ContainsKey('CollectInterval')) {
-        $collectInterval = [int]$CollectInterval
-    } elseif ($config.collect_interval) {
-        $collectInterval = [int]$config.collect_interval
-    } else {
-        $collectInterval = 0
-    }
+    $collectInterval = 0
 
     if ($PSBoundParameters.ContainsKey('ReportInterval')) {
         $reportInterval = [int]$ReportInterval
@@ -818,6 +823,10 @@ function Start-TimerCollectLoop {
     }
     if ($collectInterval -lt 0) { $collectInterval = 0 }
     if ($reportInterval -lt 1) { $reportInterval = 60 }
+    if ($reportInterval -lt 60) {
+        Write-Log "上报间隔 ${reportInterval}s 过低，托盘模式最低 60 秒，已自动调整为 60 秒" "WARN"
+        $reportInterval = 60
+    }
     if ($collectInterval -gt 0 -and $reportInterval -lt $collectInterval) {
         $reportInterval = $collectInterval
     }
@@ -884,7 +893,7 @@ function Start-TimerCollectLoop {
             if ($now - $script:cs_lastPingCheck -ge 30 -or $script:cs_lastPingCheck -eq 0) {
                 $script:cs_lastPingCheck = $now
                 $existingJob = Get-Job -Name "CFProbePingJob" -ErrorAction SilentlyContinue
-                if (-not $existingJob -or $existingJob.State -eq "Completed") {
+                if (-not $existingJob -or $existingJob.State -in @("Completed", "Failed", "Stopped")) {
                     Remove-PingBackgroundJob
                     Start-PingBackgroundJob -CtNode $ctN -CuNode $cuN -CmNode $cmN -BdNode $bdN -PingType $pType -TempFile $pFile
                 }
@@ -1009,7 +1018,7 @@ function Install-Service {
     Write-Host "=============================================" -ForegroundColor Cyan
     Write-Host "调试信息:" -ForegroundColor Cyan
     Write-Host "  Id: '$Id'" -ForegroundColor Cyan
-    Write-Host "  Secret: '$Secret'" -ForegroundColor Cyan
+    Write-Host "  Secret: '********'" -ForegroundColor Cyan
     Write-Host "  Url: '$Url'" -ForegroundColor Cyan
     Write-Host "  脚本目录: $SCRIPT_DIR" -ForegroundColor Cyan
     Write-Host "  配置文件: $CONFIG_FILE" -ForegroundColor Cyan
@@ -1033,7 +1042,7 @@ function Install-Service {
         server_id = if ($cleanId) { $cleanId } elseif ($existingConfig) { $existingConfig.server_id } else { "" }
         secret = if ($cleanSecret) { $cleanSecret } elseif ($existingConfig) { $existingConfig.secret } else { "" }
         worker_url = if ($cleanUrl) { $cleanUrl } elseif ($existingConfig) { $existingConfig.worker_url } else { "" }
-        collect_interval = [int]$CollectInterval
+        collect_interval = 0
         report_interval = [int]$ReportInterval
         ping_type = $PingType
         reset_day = [int]$ResetDay
@@ -1120,7 +1129,7 @@ function Install-Service {
     Write-Host "  Server ID  : $($config.server_id)"
     Write-Host "  Worker URL : $($config.worker_url)"
     Write-Host "  上报间隔   : $($config.report_interval)秒"
-    Write-Host "  采样间隔   : $($config.collect_interval)秒"
+    Write-Host "  采样间隔   : Windows PowerShell 版不启用 samples 缓存"
     Write-Host "  探测类型   : $($config.ping_type)"
     Write-Host "  流量重置日 : $($config.reset_day)号"
     Write-Host "  配置文件   : $CONFIG_FILE"
@@ -1153,17 +1162,24 @@ function Install-Service {
 
     # 启动探针，传递必要的参数
     Write-Host "正在启动探针..." -ForegroundColor Yellow
-    $runArgs = "-NoProfile -ExecutionPolicy Bypass -STA -File `"$scriptPath`" run -STA -Id `"$($config.server_id)`" -Secret `"$($config.secret)`" -Url `"$($config.worker_url)`""
+    $runArgs = "-NoProfile -ExecutionPolicy Bypass -STA -File `"$scriptPath`" run -STA"
     Write-Host "启动命令: powershell.exe $runArgs" -ForegroundColor Cyan
     Start-Process powershell.exe -ArgumentList $runArgs -WindowStyle Hidden
     Start-Sleep -Seconds 2  # 等待进程启动
 
     # 检查是否启动成功
-    $running = Get-Process powershell -ErrorAction SilentlyContinue | Where-Object { 
-        $_.CommandLine -like "*cf-server-monitor*run*" 
-    }
+    $running = $false
+    try {
+        $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop
+        foreach ($p in $procs) {
+            if ($p.CommandLine -like "*cf-server-monitor*run*") {
+                $running = $true
+                break
+            }
+        }
+    } catch {}
     if ($running) {
-        Write-Host "探针已启动 (PID: $($running.Id -join ', '))" -ForegroundColor Green
+        Write-Host "探针已启动" -ForegroundColor Green
     } else {
         Write-Host "警告: 探针可能未启动，请检查日志: $LOG_FILE" -ForegroundColor Yellow
     }
@@ -1194,9 +1210,14 @@ function Uninstall-Service {
     }
 
     # 终止进程
-    Get-Process powershell -ErrorAction SilentlyContinue | Where-Object {
-        $_.CommandLine -like "*cf-server-monitor*run*"
-    } | Stop-Process -Force -ErrorAction SilentlyContinue
+    try {
+        $procs = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Stop
+        foreach ($p in $procs) {
+            if ($p.CommandLine -like "*cf-server-monitor*run*") {
+                Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+        }
+    } catch {}
 
     # 清理文件
     if (Test-Path $CONFIG_FILE) { Remove-Item $CONFIG_FILE -Force }

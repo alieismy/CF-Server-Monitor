@@ -18,7 +18,7 @@ export async function updateDatabase(db) {
     const historyCols = await addHistoryColumns(db);
     results.push({ name: 'metrics_history 表列更新', ...historyCols });
 
-    // 无需清理metrics_history多余字段，消耗过大，不影响使用，每月执行monthlyCleanup的时候会自动清理
+    // 无需清理metrics_history多余字段，消耗过大，不影响使用，每周执行weeklyCleanup的时候会自动清理
     
     const staleCleanup = await cleanupStaleSettings(db);
     results.push({ name: '废弃 settings key 清理', ...staleCleanup });
