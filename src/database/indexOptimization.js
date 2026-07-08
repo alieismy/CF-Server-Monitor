@@ -8,7 +8,7 @@ export const HISTORY_MAX_PARTITION_ID = 900;
 // 确保servers历史记录分区优化
 export async function ensureServerOptimization(db) {
   // 检查是否已优化
-  if (getSettingByKey(db, 'servers_optimized')) {
+  if (await getSettingByKey(db, 'servers_optimized', true)) {
     debug('服务器历史记录分区已优化');
     return;
   }

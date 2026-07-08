@@ -184,8 +184,12 @@ export async function saveSiteOptions(db, updates) {
   return siteOptions;
 }
 
-export async function getSettingByKey(db, key) {
+export async function getSettingByKey(db, key, returnBoolean = false) {
   const settings = await loadSiteSettings(db);
+  if(returnBoolean){
+    if(settings[key] === 'true') return true;
+    if(settings[key] === 'false') return false;
+  }
   return settings[key];
 }
 

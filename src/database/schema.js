@@ -14,6 +14,8 @@ let dbInitialized = false;
 
 export async function initDatabase(db) {
   if (dbInitialized) return;
+
+  debug('初始化数据库');
   
   try {
     await db.prepare(`
@@ -49,9 +51,15 @@ export async function initDatabase(db) {
           timestamp INTEGER DEFAULT 0
         )
       `).run();
-    }else if(!getSettingByKey(db, 'servers_optimized')){
+    }
+    
+    const servers_optimized  = await getSettingByKey(db, 'servers_optimized', true);
+    if(!servers_optimized){
+      debug('优化servers表');
       await ensureServerOptimization(db);
       saveSiteOptions(db, 'servers_optimized', '1');
+    }else{
+      debug('servers表已优化');
     }
 
     // 判断metrics_history表是否存在
@@ -102,7 +110,10 @@ export async function initDatabase(db) {
           net_tx_monthly REAL DEFAULT 0
         )
       `).run();
-    }else if(!getSettingByKey(db, 'history_id_optimized')) {
+    }
+    
+    const history_id_optimized  = await getSettingByKey(db, 'history_id_optimized', true);
+    if(!history_id_optimized){
       await ensureHistoryIndex(db);
     }
 
