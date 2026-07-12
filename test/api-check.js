@@ -153,7 +153,7 @@ async function bootstrap() {
     { name: 'GET /api/history/all 缺少 ID', method: 'GET', path: '/api/history/all', expectedStatus: 400 },
     { name: 'GET /api/ws', method: 'GET', path: '/api/ws', expectedStatus: 426, note: 'WebSocket 仅做 HTTP 探测' },
     { name: 'POST /updateDatabase', method: 'POST', path: '/updateDatabase', expectedStatus: 401 },
-    { name: 'POST /rebuild', method: 'POST', path: '/rebuild', expectedStatus: 401 },
+    { name: 'POST /clearHistory', method: 'POST', path: '/clearHistory', expectedStatus: 401 },
     { name: 'GET /__do/health', method: 'GET', path: '/__do/health', expectedStatus: 200 },
     { name: 'POST /update 无效 secret', method: 'POST', path: '/update', expectedStatus: 401, body: { id: MOCK_PUBLIC_SERVER_ID, secret: '__invalid__', metrics: {} } },
     { name: 'POST /update 公开服务器上报成功', method: 'POST', path: '/update', expectedStatus: 200, body: { id: MOCK_PUBLIC_SERVER_ID, secret: apiSecret, metrics: buildMockMetrics() } },

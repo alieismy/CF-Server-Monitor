@@ -510,7 +510,6 @@ interface Settings {
   custom_cu: string;
   custom_cm: string;
   custom_bd: string;
-  cleanup_skip_count: string;
   expire_reminder: 'true' | 'false';
 }
 

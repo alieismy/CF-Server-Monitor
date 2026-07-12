@@ -1,12 +1,14 @@
 import { checkAuth, simpleAuthResponse, validateCredentials, generateToken } from '../middleware/auth.js';
 import { getLatestMetricsForAllServers } from '../database/schema.js';
-import { getAllServers, clearServersListCache, clearServerDetailCache } from '../utils/cache.js';
-import { clearSiteSettingsCache, saveSiteOptions } from '../utils/settings.js';
+import { getAllServers, clearServersListCache } from '../utils/cache.js';
+import { clearAppearanceSettingsCache, saveSiteOptions } from '../utils/settings.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { verifyTurnstileToken, hashPassword } from '../utils/common.js';
 import { AppError, createSuccessResponse, createBadRequestResponse, createUnauthorizedResponse, createErrorResponse } from '../utils/errors.js';
 import { addServerColumns } from '../database/updateDatabase.js';
 import { sendNotification } from '../services/notification.js';
+import { getNextServerHistoryPartitionId } from '../database/indexOptimization.js';
+import { isValidTrafficCorrection, validateAgentConfigInput } from '../utils/agentConfig.js';
 
 function isValidUUID(id) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -17,47 +19,23 @@ function isValidName(name) {
 }
 
 async function deleteServer(db, id) {
-  // 1. 先删 servers（fast path）
   try {
-    await db.prepare('DELETE FROM servers WHERE id = ?').bind(id).run();
-    console.log('✅ servers 删除成功');
-    return { success: true, step: 1 };
-  } catch (err) {
-    // 只有 FOREIGN KEY 才进入 fallback
-    if (!err.message?.includes('FOREIGN KEY constraint failed')) {
-      throw err;
+    const stmt1 = db.prepare(`PRAGMA foreign_key_list(metrics_history)`);
+    const result1 = await stmt1.all();
+    if (result1.results.length > 0) {
+      await db.prepare('DELETE FROM metrics_history WHERE server_id = ?').bind(id).run();
     }
-  }
 
-  // 3. 删除 old 表（可能不存在）
-  await db.prepare('DELETE FROM metrics_history_old WHERE server_id = ?').bind(id).run();
-
-  // 4. 再试一次删除 servers
-  try {
-    await db.prepare('DELETE FROM servers WHERE id = ?').bind(id).run();
-    console.log('✅ servers 删除成功（after old cleanup）');
-    return { success: true, step: 4 };
-  } catch (err) {
-    if (!err.message?.includes('FOREIGN KEY constraint failed')) {
-      throw err;
+    const stmt2 = db.prepare(`PRAGMA foreign_key_list(metrics_history_old)`);
+    const result2 = await stmt2.all();
+    if (result2.results.length > 0) {
+      await db.prepare('DELETE FROM metrics_history_old WHERE server_id = ?').bind(id).run();
     }
-  }
 
-  // 5. 删除新表
-  await db.prepare('DELETE FROM metrics_history WHERE server_id = ?').bind(id).run();
-
-  // 6. 最终兜底删除
-  try {
     await db.prepare('DELETE FROM servers WHERE id = ?').bind(id).run();
   } catch (err) {
     throw err;
   }
-}
-
-function normalizeInterval(value, fallback, min = 1, max = 86400) {
-  const num = parseInt(value, 10);
-  if (!Number.isFinite(num)) return fallback;
-  return Math.max(min, Math.min(max, num));
 }
 
 function getUtcTodayRange() {
@@ -167,7 +145,7 @@ async function getD1DailyUsage(token, accountId) {
   };
 }
 
-export async function handleAdminAPI(request, env, sys) {
+export async function handleAdminAPI(request, env, sys, loadFullSettings = null) {
   try {
     const data = await request.json();
 
@@ -233,7 +211,8 @@ export async function handleAdminAPI(request, env, sys) {
     }
 
     if (data.action === 'get_settings') {
-      const { jwt_secret, ...safeSettings } = sys || {};
+      const fullSettings = loadFullSettings ? await loadFullSettings() : sys;
+      const { jwt_secret, ...safeSettings } = fullSettings || {};
       return createSuccessResponse({
         success: true,
         settings: safeSettings,
@@ -357,7 +336,7 @@ export async function handleAdminAPI(request, env, sys) {
       }
 
       const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'custom_head', 'custom_script'];
-      const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_bw', 'show_tf', 'show_time', 'show_long_history', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'cleanup_skip_count', 'expire_reminder'];
+      const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_bw', 'show_tf', 'show_time', 'show_long_history', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'expire_reminder'];
 
       const appearanceOptions = {};
       for (const field of APPEARANCE_FIELDS) {
@@ -368,6 +347,7 @@ export async function handleAdminAPI(request, env, sys) {
       await env.DB.prepare(
         'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
       ).bind('appearance_options', JSON.stringify(appearanceOptions)).run();
+      clearAppearanceSettingsCache();
 
       const siteOptions = {};
       for (const field of SITE_FIELDS) {
@@ -396,15 +376,17 @@ export async function handleAdminAPI(request, env, sys) {
       
       const id = crypto.randomUUID();
       const group = data.server_group || 'Default';
-      
+
       const { max_order } = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), -1) as max_order FROM servers').first();
       const sortOrder = (max_order || 0) + 1;
-      
+
+      const historyPartitionId = await getNextServerHistoryPartitionId(env.DB);
+
       await env.DB.prepare(`
-        INSERT INTO servers 
-        (id, name, server_group, sort_order) 
-        VALUES (?, ?, ?, ?)
-      `).bind(id, name, group, sortOrder).run();
+        INSERT INTO servers
+        (id, name, server_group, sort_order, history_partition_id, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).bind(id, name, group, sortOrder, historyPartitionId, Date.now()).run();
       
       clearServersListCache();
       
@@ -423,7 +405,6 @@ export async function handleAdminAPI(request, env, sys) {
       await deleteServer(env.DB, id);
       
       clearServersListCache();
-      clearServerDetailCache(id);
       
       return createSuccessResponse({ 
         success: true, 
@@ -451,17 +432,44 @@ export async function handleAdminAPI(request, env, sys) {
       });
     }
     else if (data.action === 'edit') {
-      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, traffic_calc_type, reset_day, collect_interval, report_interval, ping_mode, is_hidden } = data;
+      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, traffic_calc_type, reset_day, collect_interval, report_interval, ping_mode, custom_ct, custom_cu, custom_cm, custom_bd, rx_correction, tx_correction, offline_notify_disabled, is_hidden } = data;
       if (!id || !isValidUUID(id)) {
         return createBadRequestResponse('invalidServerId');
       }
-      const normalizedCollectInterval = normalizeInterval(collect_interval, 0, 0);
-      const normalizedReportInterval = Math.max(normalizedCollectInterval, normalizeInterval(report_interval, 60));
+      const agentConfigResult = validateAgentConfigInput({
+        collect_interval,
+        report_interval,
+        ping_mode,
+        reset_day
+      });
+      if (!agentConfigResult.valid) {
+        return createBadRequestResponse(agentConfigResult.error);
+      }
+      const normalizedAgentConfig = agentConfigResult.config;
+
+      const sanitizePing = (v) => {
+        if (v === null || v === undefined) return '';
+        return String(v).replace(/[^a-zA-Z0-9.\-_]/g, '').slice(0, 50);
+      };
+      const safeCustomCt = sanitizePing(custom_ct);
+      const safeCustomCu = sanitizePing(custom_cu);
+      const safeCustomCm = sanitizePing(custom_cm);
+      const safeCustomBd = sanitizePing(custom_bd);
+
+      const toNullCorrection = (v) => {
+        if (v === null || v === undefined || v === '') return null;
+        return isValidTrafficCorrection(v) ? Number(v) : undefined;
+      };
+      const safeRx = toNullCorrection(rx_correction);
+      const safeTx = toNullCorrection(tx_correction);
+      if (safeRx === undefined || safeTx === undefined) {
+        return createBadRequestResponse('invalidTrafficCorrection');
+      }
       
       try {
         await env.DB.prepare(`
           UPDATE servers
-          SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?, traffic_calc_type = ?, reset_day = ?, collect_interval = ?, report_interval = ?, ping_mode = ?, is_hidden = ?
+          SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?, traffic_calc_type = ?, reset_day = ?, collect_interval = ?, report_interval = ?, ping_mode = ?, custom_ct = ?, custom_cu = ?, custom_cm = ?, custom_bd = ?, rx_correction = ?, tx_correction = ?, offline_notify_disabled = ?, is_hidden = ?
           WHERE id = ?
         `).bind(
           name || '',
@@ -471,10 +479,17 @@ export async function handleAdminAPI(request, env, sys) {
           bandwidth || '',
           traffic_limit || '',
           traffic_calc_type || 'total',
-          reset_day !== undefined && reset_day !== null && reset_day !== '' ? reset_day : 1,
-          normalizedCollectInterval,
-          normalizedReportInterval,
-          ping_mode || 'http',
+          normalizedAgentConfig.reset_day,
+          normalizedAgentConfig.collect_interval,
+          normalizedAgentConfig.report_interval,
+          normalizedAgentConfig.ping_mode,
+          safeCustomCt,
+          safeCustomCu,
+          safeCustomCm,
+          safeCustomBd,
+          safeRx,
+          safeTx,
+          offline_notify_disabled || '0',
           is_hidden || '0',
           id
         ).run();
@@ -490,7 +505,6 @@ export async function handleAdminAPI(request, env, sys) {
       }
       
       clearServersListCache();
-      clearServerDetailCache(id);
       
       return createSuccessResponse({ 
         success: true, 
@@ -514,9 +528,6 @@ export async function handleAdminAPI(request, env, sys) {
       }
       
       clearServersListCache();
-      for (const id of ids) {
-        clearServerDetailCache(id);
-      }
       
       return createSuccessResponse({ 
         success: true, 

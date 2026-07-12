@@ -44,7 +44,7 @@
   - [3.11](#311-action-save_order---保存服务器排序) [`action: save_order`](#311-action-save_order---保存服务器排序) [- 保存服务器排序](#311-action-save_order---保存服务器排序)
 - [4. 系统维护端点](#4-系统维护端点)
   - [4.1](#41-post-updatedatabase---数据库迁移) [`POST /updateDatabase`](#41-post-updatedatabase---数据库迁移) [- 数据库迁移](#41-post-updatedatabase---数据库迁移)
-  - [4.2](#42-post-rebuild---数据库重建) [`POST /rebuild`](#42-post-rebuild---数据库重建) [- 数据库重建](#42-post-rebuild---数据库重建)
+  - [4.2](#42-post-clearhistory---清空历史数据) [`POST /clearHistory`](#42-post-clearhistory---清空历史数据) [- 清空历史数据](#42-post-clearhistory---清空历史数据)
   - [4.3](#43-get-__dohealth---durable-object-健康检查) [`GET /__do/health`](#43-get-__dohealth---durable-object-健康检查) [- Durable Object 健康检查](#43-get-__dohealth---durable-object-健康检查)
 - [5. 数据结构](#5-数据结构)
   - [5.1 Server 对象](#51-server-对象)
@@ -85,7 +85,7 @@
 
 #### C. JWT Bearer（管理操作 → 后续管理请求）
 
-- **使用位置**：所有非 `login` 的 `POST /admin/api`、`POST /updateDatabase`、`POST /rebuild`
+- **使用位置**：所有非 `login` 的 `POST /admin/api`、`POST /updateDatabase`、`POST /clearHistory`
 - **方式**：`Authorization: Bearer <token>` Header
 - **Token 签发**：`HS256` JWT，默认有效期 **604800 秒（7 天）**
 - **签名密钥**（优先级）：
@@ -207,7 +207,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 - Headers：
   ```
   Content-Type: application/json
+  X-Agent-Config-Schema: 1
+  X-Agent-Config-Md5: <最后成功应用的配置 MD5，首次为 none>
   ```
+  动态配置请求头为新版探针使用的可选字段；未携带时保持旧版响应协议。
 - Body（JSON）：
   ```json
   {
@@ -309,11 +312,19 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 
 **Response**
 
-- 成功 `200 OK`：
+- 旧版探针（未携带 `X-Agent-Config-Schema: 1`）：返回 `200 OK`：
   ```
   OK
   ```
   （`Content-Type: text/plain`）
+- 新版探针且配置 MD5 一致：返回 `204 No Content`，不包含响应体。
+- 新版探针且配置 MD5 不一致：返回 `200 OK`，响应头携带新的
+  `X-Agent-Config-Md5`，响应体为按字段名排序的完整 QueryParam 配置：
+  ```text
+  collect_interval=0&ping_mode=http&report_interval=60&reset_day=1&schema_version=1
+  ```
+  （`Content-Type: application/x-www-form-urlencoded; charset=utf-8`）
+- 动态配置的字段范围、规范化及客户端校验规则详见 [AGENT_CONFIG.md](./AGENT_CONFIG.md)。
 - 失败：
   ```json
   { "error": "Invalid secret", "code": 401 }
@@ -895,7 +906,6 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled === 
     "custom_cu": "gd-cu-dualstack.ip.zstaticcdn.com",
     "custom_cm": "gd-cm-dualstack.ip.zstaticcdn.com",
     "custom_bd": "lf3-ips.zstaticcdn.com",
-    "cleanup_skip_count": "0",
     "expire_reminder": "false"
   }
 }
@@ -1074,14 +1084,14 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled === 
 
 ***
 
-### 4.2 `POST /rebuild` - 数据库重建
+### 4.2 `POST /clearHistory` - 清空历史数据
 
-> **危险操作**：会删除 `servers` / `metrics_history` / `metrics_history_old` / `settings` 全部数据后重建。
+> **危险操作**：会删除 ``metrics_history` / `metrics_history_old` 全部数据后重建。
 
 **Request**
 
 - Method：`POST`
-- Path：`/rebuild`
+- Path：`/clearHistory`
 - Headers：`Authorization: Bearer <jwt>`
 
 **Response 200**
@@ -1207,7 +1217,6 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled === 
   custom_cu: string,             // 联通
   custom_cm: string,             // 移动
   custom_bd: string,             // BGP
-  cleanup_skip_count: string,
   expire_reminder: 'true' | 'false'
 }
 ```

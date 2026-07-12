@@ -152,7 +152,7 @@
                   <th>{{ trans.hostname.toUpperCase() }}</th>
                   <th>{{ trans.group.toUpperCase() }}</th>
                   <th>{{ trans.price.toUpperCase() }}</th>
-                  <th>{{ trans.expire.toUpperCase() }}</th>
+                  <th>{{ trans.expirationDate.toUpperCase() }}</th>
                   <th>{{ trans.bandwidth.toUpperCase() }}</th>
                   <th>{{ trans.traffic.toUpperCase() }}</th>
                   <th>{{ trans.status.toUpperCase() }}</th>
@@ -190,10 +190,6 @@
                   </td>
                   <td>
                     <div class="action-group">
-                      <div class="cmd-input-wrapper" :class="{ copied: copiedServerId === server.id }">
-                        <span class="cmd-prompt">$</span>
-                        <input @click="copyCmd(server.id)" type="text" readonly :value="getInstallCommand(server.id)" class="cmd-input">
-                      </div>
                       <div class="action-btns">
                         <button @click="copyCmd(server.id)" class="btn btn-icon btn-green" :title="trans.copy">{{ copiedServerId === server.id ? '✅' : '📋' }}</button>
                         <button @click="openEditModal(server)" class="btn btn-icon btn-blue" :title="trans.edit">✏️</button>
@@ -324,7 +320,7 @@
                   <div class="form-group flex-1">
                     <label class="form-label">{{ trans.chatId }}</label>
                     <div class="password-input-wrapper">
-                      <input :type="passwordVisible.tgChatId ? 'text' : 'password'" name="tg_chat_id" autocomplete="off" v-model="settings.tg_chat_id" class="form-input" placeholder="Telegram Chat ID (optional for WeChat)">
+                      <input :type="passwordVisible.tgChatId ? 'text' : 'password'" name="tg_chat_id" autocomplete="off" v-model="settings.tg_chat_id" class="form-input" placeholder="Optional Chat ID">
                       <button type="button" class="password-toggle" @click="togglePassword('tgChatId')">
                         {{ passwordVisible.tgChatId ? '🙈' : '👁️' }}
                       </button>
@@ -514,9 +510,9 @@
               </div>
 
               <div class="form-group">
-                <label class="form-label danger-label">⚠️ {{ trans.rebuildDatabase }}</label>
-                <p class="text-muted mb-2">{{ trans.rebuildDesc }}</p>
-                <button @click="openDbModal('rebuild')" class="btn btn-red btn-lg" :disabled="dbLoading">🗑️ {{ trans.rebuildDatabase }}</button>
+                <label class="form-label danger-label">⚠️ {{ trans.clearHistory }}</label>
+                <p class="text-muted mb-2">{{ trans.clearHistoryDesc }}</p>
+                <button @click="openDbModal('clearHistory')" class="btn btn-red btn-lg" :disabled="dbLoading">🗑️ {{ trans.clearHistory }}</button>
               </div>
             </div>
           </div>
@@ -526,7 +522,7 @@
       <div id="editModal" class="modal-overlay" :class="{ active: showEditModal }">
         <div class="modal-dialog">
           <div class="modal-header">
-            <div class="modal-title">$ vim /etc/server.conf</div>
+            <div class="modal-title">{{ currentServerName }}</div>
             <button class="modal-close" @click="closeEditModal">✕</button>
           </div>
           <input type="hidden" v-model="editForm.id">
@@ -611,23 +607,71 @@
               </select>
             </div>
           </div>
+
           <div class="text-muted text-sm mb-3">
             <span class="warning-icon">[i]</span> {{ trans.collectIntervalHint }}<br>
             <span class="warning-icon">[i]</span> {{ trans.trafficResetDayTip }}
           </div>
-          <div class="form-group">
-            <div class="checkbox-item no-margin">
-              <input type="checkbox" v-model="editForm.is_hidden">
-              <label>
-                <b>{{ trans.hideFromPublic }}</b><br>
-                <span class="text-xs text-muted">{{ trans.hideDesc }}</span>
-              </label>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label class="form-label">{{ trans.customCt }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+              <input type="text" name="edit_custom_ct" autocomplete="off" v-model="editForm.custom_ct" class="form-input" :placeholder="settings.custom_ct || 'gd-ct-dualstack.ip.zstaticcdn.com'">
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label">{{ trans.customCu }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+              <input type="text" name="edit_custom_cu" autocomplete="off" v-model="editForm.custom_cu" class="form-input" :placeholder="settings.custom_cu || 'gd-cu-dualstack.ip.zstaticcdn.com'">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label class="form-label">{{ trans.customCm }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+              <input type="text" name="edit_custom_cm" autocomplete="off" v-model="editForm.custom_cm" class="form-input" :placeholder="settings.custom_cm || 'gd-cm-dualstack.ip.zstaticcdn.com'">
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label">{{ trans.customBd }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+              <input type="text" name="edit_custom_bd" autocomplete="off" v-model="editForm.custom_bd" class="form-input" :placeholder="settings.custom_bd || 'lf3-ips.zstaticcdn.com'">
             </div>
           </div>
 
-          <div class="modal-footer">
-            <button @click="closeEditModal" class="btn">{{ trans.cancel }}</button>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label class="form-label">{{ trans.rxCorrection }} (GB)</label>
+              <input type="number" name="edit_rx_correction" autocomplete="off" v-model="editForm.rx_correction" class="form-input" placeholder="0" min="0" step="0.1">
+            </div>
+            <div class="form-group flex-1">
+              <label class="form-label">{{ trans.txCorrection }} (GB)</label>
+              <input type="number" name="edit_tx_correction" autocomplete="off" v-model="editForm.tx_correction" class="form-input" placeholder="0" min="0" step="0.1">
+            </div>
+          </div>
+          <div class="text-muted text-sm mb-3">
+            <span class="warning-icon">[i]</span> {{ trans.correctionHint }}
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <div class="checkbox-item no-margin">
+                <input type="checkbox" v-model="editForm.is_hidden">
+                <label>
+                  <b>{{ trans.hideFromPublic }}</b><br>
+                  <span class="text-xs text-muted">{{ trans.hideDesc }}</span>
+                </label>
+              </div>
+            </div>
+
+            <div v-if="settings.tg_notify === 'true' && settings.tg_bot_token" class="form-group">
+              <div class="checkbox-item no-margin">
+                <input type="checkbox" v-model="editForm.offline_notify_disabled">
+                <label>
+                  <b>{{ trans.disableOfflineNotify }}</b><br>
+                  <span class="text-xs text-muted">{{ trans.disableOfflineNotifyDesc }}</span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer flex-justify-between">
             <button @click="saveEdit" class="btn btn-primary">{{ trans.save }}</button>
+            <button @click="closeEditModal" class="btn">{{ trans.cancel }}</button>
           </div>
         </div>
       </div>
@@ -635,7 +679,7 @@
       <div id="deleteModal" class="modal-overlay" :class="{ active: showDeleteModal }">
         <div class="modal-dialog">
           <div class="modal-header">
-            <div class="modal-title">$ rm -rf /etc/server.conf</div>
+            <div class="modal-title">{{ currentServerName }}</div>
             <button class="modal-close" @click="closeDeleteModal">✕</button>
           </div>
           <input type="hidden" v-model="deleteServerId">
@@ -652,8 +696,19 @@
             </p>
           </div>
 
+          <div class="form-group mb-3">
+            <label class="form-label">{{ trans.targetOs }}</label>
+            <select v-model="deleteTargetOs" class="form-select">
+              <option value="linux">Linux (Ubuntu/Debian/CentOS)</option>
+              <option value="alpine">Alpine Linux</option>
+              <option value="openwrt">OpenWrt / LEDE / ImmortalWrt</option>
+              <option value="mac">macOS (Intel / Apple Silicon)</option>
+              <option value="windows">Windows</option>
+            </select>
+          </div>
+
           <div class="cmd-input-wrapper mb-3" :class="{ copied: uninstallCopied }">
-            <span class="cmd-prompt">$</span>
+            <span class="cmd-prompt">{{ deleteTargetOs === 'windows' ? 'PS' : '$' }}</span>
             <input type="text" readonly :value="getUninstallCommand()" class="cmd-input flex-1">
             <button @click="copyUninstallCmd" class="btn btn-icon btn-green ml-2" :title="trans.copy">{{ uninstallCopied ? '✅' : '📋' }}</button>
           </div>
@@ -672,7 +727,7 @@
       <div id="copyModal" class="modal-overlay" :class="{ active: showCopyModal }">
         <div class="modal-dialog">
           <div class="modal-header">
-            <div class="modal-title">bash -s install</div>
+            <div class="modal-title">{{ currentServerName }}</div>
             <button class="modal-close" @click="closeCopyModal">✕</button>
           </div>
 
@@ -682,6 +737,7 @@
               <option value="linux">Linux (Ubuntu/Debian/CentOS)</option>
               <option value="alpine">Alpine Linux</option>
               <option value="openwrt">OpenWrt / LEDE / ImmortalWrt</option>
+              <option value="mac">macOS (Intel / Apple Silicon)</option>
               <option value="windows">Windows</option>
             </select>
           </div>
@@ -689,22 +745,22 @@
           <div class="form-row">
             <div class="form-group flex-1">
               <label class="form-label">{{ trans.customCt }}</label>
-              <input type="text" name="custom_ct" autocomplete="off" v-model="customCt" class="form-input" placeholder="gd-ct-dualstack.ip.zstaticcdn.com">
+              <input type="text" name="custom_ct" autocomplete="off" v-model="customCt" class="form-input" placeholder="gd-ct-dualstack.ip.zstaticcdn.com" readonly>
             </div>
             <div class="form-group flex-1">
               <label class="form-label">{{ trans.customCu }}</label>
-              <input type="text" name="custom_cu" autocomplete="off" v-model="customCu" class="form-input" placeholder="gd-cu-dualstack.ip.zstaticcdn.com">
+              <input type="text" name="custom_cu" autocomplete="off" v-model="customCu" class="form-input" placeholder="gd-cu-dualstack.ip.zstaticcdn.com" readonly>
             </div>
           </div>
 
           <div class="form-row">
             <div class="form-group flex-1">
               <label class="form-label">{{ trans.customCm }}</label>
-              <input type="text" name="custom_cm" autocomplete="off" v-model="customCm" class="form-input" placeholder="gd-cm-dualstack.ip.zstaticcdn.com">
+              <input type="text" name="custom_cm" autocomplete="off" v-model="customCm" class="form-input" placeholder="gd-cm-dualstack.ip.zstaticcdn.com" readonly>
             </div>
             <div class="form-group flex-1">
               <label class="form-label">{{ trans.customBd }}</label>
-              <input type="text" name="custom_bd" autocomplete="off" v-model="customBd" class="form-input" placeholder="lf3-ips.zstaticcdn.com">
+              <input type="text" name="custom_bd" autocomplete="off" v-model="customBd" class="form-input" placeholder="lf3-ips.zstaticcdn.com" readonly>
             </div>
           </div>
 
@@ -739,11 +795,11 @@
           <div class="form-row">
             <div class="form-group flex-1">
               <label class="form-label">{{ trans.rxCorrection }} (GB)</label>
-              <input type="number" name="rx_correction" autocomplete="off" v-model="rxCorrection" class="form-input" placeholder="0" min="0" step="1">
+              <input type="number" name="rx_correction" autocomplete="off" v-model="rxCorrection" class="form-input" placeholder="0" min="0" step="1" readonly>
             </div>
             <div class="form-group flex-1">
               <label class="form-label">{{ trans.txCorrection }} (GB)</label>
-              <input type="number" name="tx_correction" autocomplete="off" v-model="txCorrection" class="form-input" placeholder="0" min="0" step="1">
+              <input type="number" name="tx_correction" autocomplete="off" v-model="txCorrection" class="form-input" placeholder="0" min="0" step="1" readonly>
             </div>
           </div>
 
@@ -755,9 +811,9 @@
             </div>
           </div>
 
-          <div class="modal-footer flex-justify-end">
+          <div class="modal-footer flex-justify-between">
             <button @click="copyCustomCmd" class="btn btn-primary">{{ copiedCmd ? '✅ ' + trans.copied : '📋 ' + trans.copy }}</button>
-            <button @click="closeCopyModal" class="btn">{{ trans.close }}</button>
+            <button @click="closeCopyModal" class="btn">{{ trans.cancel }}</button>
           </div>
         </div>
       </div>
@@ -765,17 +821,17 @@
       <div id="dbModal" class="modal-overlay" :class="{ active: showDbModal }">
         <div class="modal-dialog">
           <div class="modal-header">
-            <div class="modal-title">$ {{ dbOperation === 'rebuild' ? 'DROP DATABASE' : 'ALTER DATABASE' }}</div>
+            <div class="modal-title">$ {{ dbOperation === 'clearHistory' ? 'CLEAR HISTORY' : 'ALTER DATABASE' }}</div>
             <button class="modal-close" @click="closeDbModal" :disabled="dbLoading">✕</button>
           </div>
 
-          <div v-if="dbOperation === 'rebuild'" class="mb-4">
+          <div v-if="dbOperation === 'clearHistory'" class="mb-4">
             <div class="flex-center-gap-sm mb-3">
               <span class="danger-icon text-xl">⚠️</span>
               <span class="danger-label">{{ trans.dangerOperation }}</span>
             </div>
             <p class="text-secondary text-sm line-height-1-6">
-              {{ trans.rebuildWarning }}
+              {{ trans.clearHistoryWarning }}
             </p>
           </div>
 
@@ -800,14 +856,14 @@
             </div>
           </div>
 
-          <div class="modal-footer flex-justify-between">
+          <div v-if="!(dbResult && dbResult.success)" class="modal-footer flex-justify-between">
             <button 
               v-if="!dbResult" 
-              @click="dbOperation === 'rebuild' ? handleRebuildDatabase() : handleUpgradeDatabase()" 
+              @click="dbOperation === 'clearHistory' ? handleClearHistory() : handleUpgradeDatabase()" 
               class="btn btn-red" 
               :disabled="dbLoading"
             >
-              {{ dbLoading ? (dbOperation === 'rebuild' ? trans.rebuilding : trans.upgrading) : (dbOperation === 'rebuild' ? trans.confirmRebuild : trans.upgradeDatabase) }}
+              {{ dbLoading ? (dbOperation === 'clearHistory' ? trans.clearing : trans.upgrading) : (dbOperation === 'clearHistory' ? trans.confirmClear : trans.upgradeDatabase) }}
             </button>
             <button @click="closeDbModal" class="btn" :disabled="dbLoading">{{ trans.cancel }}</button>
           </div>
@@ -893,7 +949,8 @@
             {{ getMessage(d1UsageResult.error) }}
           </div>
 
-          <div class="modal-footer flex-justify-end">
+          <div class="modal-footer flex-justify-between">
+            <div></div>
             <button @click="d1UsageResult = null" class="btn">{{ trans.close }}</button>
           </div>
         </div>
@@ -913,7 +970,8 @@
             </div>
           </div>
 
-          <div class="modal-footer flex-justify-end">
+          <div class="modal-footer flex-justify-between">
+            <div></div>
             <button @click="validationError = null" class="btn">{{ trans.close }}</button>
           </div>
         </div>
@@ -940,8 +998,27 @@
             </div>
           </div>
 
-          <div class="modal-footer flex-justify-end">
+          <div class="modal-footer flex-justify-between">
+            <div></div>
             <button @click="saveResult = null" class="btn">{{ trans.close }}</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="alertMessage" class="modal-overlay active">
+        <div class="modal-dialog">
+          <div class="modal-header">
+            <div class="modal-title">$ alert</div>
+            <button class="modal-close" @click="alertMessage = null">✕</button>
+          </div>
+
+          <div class="mb-4">
+            <p class="text-secondary text-sm">{{ alertMessage }}</p>
+          </div>
+
+          <div class="modal-footer flex-justify-between">
+            <div></div>
+            <button @click="alertMessage = null" class="btn">{{ trans.close }}</button>
           </div>
         </div>
       </div>
@@ -956,7 +1033,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import TerminalHeader from '../components/TerminalHeader.vue'
 import Footer from '../components/Footer.vue'
-import { adminApi, login, logout as apiLogout, formatBytes, upgradeDatabase, rebuildDatabase, getFlagRegionCode, getApiBases } from '../utils/api'
+import { adminApi, login, logout as apiLogout, formatBytes, upgradeDatabase, clearHistory, getFlagRegionCode, getApiBases } from '../utils/api'
 import { hasMultipleApiBases } from '../utils/config.js'
 import { t, currentLang, useTranslation } from '../utils/i18n'
 import { http } from '../utils/http'
@@ -1076,13 +1153,21 @@ const editForm = ref({
   collect_interval: 0,
   report_interval: 60,
   ping_mode: 'http',
-  is_hidden: false
+  custom_ct: '',
+  custom_cu: '',
+  custom_cm: '',
+  custom_bd: '',
+  rx_correction: '',
+  tx_correction: '',
+  is_hidden: false,
+  offline_notify_disabled: false
 })
 
 const showDeleteModal = ref(false)
 const deleteServerId = ref('')
 
 const copiedServerId = ref(null)
+const deleteTargetOs = ref('linux')
 const uninstallCopied = ref(false)
 const saving = ref(false)
 
@@ -1093,6 +1178,7 @@ const dbResult = ref(null)
 const d1UsageLoading = ref(false)
 const d1UsageResult = ref(null)
 const validationError = ref(null)
+const alertMessage = ref(null)
 
 const testNotificationLoading = ref(false)
 
@@ -1100,6 +1186,7 @@ const saveResult = ref(null)
 
 const showCopyModal = ref(false)
 const copyServerId = ref('')
+const currentServerName = ref('')
 const targetOs = ref('linux')
 const collectInterval = ref(0)
 const reportInterval = ref(60)
@@ -1506,7 +1593,10 @@ const saveSettings = async () => {
 
 const addServer = async () => {
     const name = newServerName.value.trim()
-    if (!name) return alert(trans.value.enterServerName)
+    if (!name) {
+      validationError.value = trans.value.enterServerName
+      return
+    }
 
     try {
       const result = await adminApiForSite({ action: 'add', name, server_group: newServerGroup.value })
@@ -1529,27 +1619,40 @@ const getInstallCommand = (serverId) => {
 }
 
 const getUninstallCommand = () => {
-  return `curl -sL ${selectedApiBase.value}/install.sh | bash -s uninstall`
+  const HOST = selectedApiBase.value
+  if (deleteTargetOs.value === 'windows') {
+    return `irm ${HOST}/cf-server-monitor.ps1 -OutFile cf-server-monitor.ps1; powershell -ExecutionPolicy Bypass -File .\\cf-server-monitor.ps1 uninstall`
+  }
+  const shell = deleteTargetOs.value === 'alpine' || deleteTargetOs.value === 'openwrt' ? 'sh' : 'bash'
+  const sudoPrefix = deleteTargetOs.value === 'mac' ? 'sudo ' : ''
+  const script = deleteTargetOs.value === 'alpine' ? 'install-alpine.sh'
+    : deleteTargetOs.value === 'openwrt' ? 'install-openwrt.sh'
+    : deleteTargetOs.value === 'mac' ? 'install-mac.sh'
+    : 'install.sh'
+  return `curl -sL ${HOST}/${script} | ${sudoPrefix}${shell} -s uninstall`
 }
 
 const copyCmd = (serverId) => {
   const server = servers.value.find(s => s.id === serverId)
   copyServerId.value = serverId
+  currentServerName.value = server?.name || ''
   targetOs.value = 'linux'
   collectInterval.value = server?.collect_interval ?? 0
   reportInterval.value = server?.report_interval || 60
   pingMode.value = server?.ping_mode || 'http'
-  customCt.value = settings.value.custom_ct
-  customCu.value = settings.value.custom_cu
-  customCm.value = settings.value.custom_cm
-  customBd.value = settings.value.custom_bd
+  customCt.value = server?.custom_ct || settings.value.custom_ct
+  customCu.value = server?.custom_cu || settings.value.custom_cu
+  customCm.value = server?.custom_cm || settings.value.custom_cm
+  customBd.value = server?.custom_bd || settings.value.custom_bd
   resetDay.value = server?.reset_day ?? 1
-  rxCorrection.value = ''
-  txCorrection.value = ''
+  rxCorrection.value = server?.rx_correction ?? ''
+  txCorrection.value = server?.tx_correction ?? ''
   trafficCalcType.value = server?.traffic_calc_type || 'total'
   copiedCmd.value = false
   showCopyModal.value = true
 }
+
+const hasCorrectionValue = (value) => value !== null && value !== undefined && value !== ''
 
 const getCustomInstallCommand = () => {
   const HOST = selectedApiBase.value
@@ -1568,21 +1671,23 @@ const getCustomInstallCommand = () => {
     if (customCu.value) params.push(`-CuNode '${customCu.value}'`)
     if (customCm.value) params.push(`-CmNode '${customCm.value}'`)
     if (customBd.value) params.push(`-BdNode '${customBd.value}'`)
-    if (rxCorrection.value && rxCorrection.value !== '') params.push(`-RxCorrection ${rxCorrection.value}`)
-    if (txCorrection.value && txCorrection.value !== '') params.push(`-TxCorrection ${txCorrection.value}`)
+    if (hasCorrectionValue(rxCorrection.value)) params.push(`-RxCorrection ${rxCorrection.value}`)
+    if (hasCorrectionValue(txCorrection.value)) params.push(`-TxCorrection ${txCorrection.value}`)
     return `irm ${HOST}/cf-server-monitor.ps1 -OutFile cf-server-monitor.ps1; powershell -ExecutionPolicy Bypass -File .\\cf-server-monitor.ps1 ${params.join(' ')}`
   }
   const shell = targetOs.value === 'alpine' || targetOs.value === 'openwrt' ? 'sh' : 'bash'
+  const sudoPrefix = targetOs.value === 'mac' ? 'sudo ' : ''
   const script = targetOs.value === 'alpine' ? 'install-alpine.sh'
     : targetOs.value === 'openwrt' ? 'install-openwrt.sh'
+    : targetOs.value === 'mac' ? 'install-mac.sh'
     : 'install.sh'
-  let cmd = `curl -sL ${HOST}/${script} | ${shell} -s install -id=${copyServerId.value} -secret='${apiSecret.value}' -url=${HOST}/update -collect_interval=${collectInterval.value} -interval=${reportInterval.value} -ping=${pingMode.value} -reset_day=${resetDay.value ?? 1}`
+  let cmd = `curl -sL ${HOST}/${script} | ${sudoPrefix}${shell} -s install -id=${copyServerId.value} -secret='${apiSecret.value}' -url=${HOST}/update -collect_interval=${collectInterval.value} -interval=${reportInterval.value} -ping=${pingMode.value} -reset_day=${resetDay.value ?? 1}`
   if (customCt.value) cmd += ` -ct=${customCt.value}`
   if (customCu.value) cmd += ` -cu=${customCu.value}`
   if (customCm.value) cmd += ` -cm=${customCm.value}`
   if (customBd.value) cmd += ` -bd=${customBd.value}`
-  if (rxCorrection.value && rxCorrection.value !== '') cmd += ` -rx_correction=${rxCorrection.value}`
-  if (txCorrection.value && txCorrection.value !== '') cmd += ` -tx_correction=${txCorrection.value}`
+  if (hasCorrectionValue(rxCorrection.value)) cmd += ` -rx_correction=${rxCorrection.value}`
+  if (hasCorrectionValue(txCorrection.value)) cmd += ` -tx_correction=${txCorrection.value}`
   return cmd
 }
 
@@ -1643,8 +1748,16 @@ const openEditModal = (server) => {
     collect_interval: server.collect_interval ?? 0,
     report_interval: server.report_interval || 60,
     ping_mode: server.ping_mode || 'http',
-    is_hidden: server.is_hidden === '1'
+    custom_ct: server.custom_ct || '',
+    custom_cu: server.custom_cu || '',
+    custom_cm: server.custom_cm || '',
+    custom_bd: server.custom_bd || '',
+    rx_correction: server.rx_correction ?? '',
+    tx_correction: server.tx_correction ?? '',
+    is_hidden: server.is_hidden === '1',
+    offline_notify_disabled: server.offline_notify_disabled === '1'
   }
+  currentServerName.value = server.name || ''
   showEditModal.value = true
 }
 
@@ -1667,7 +1780,14 @@ const saveEdit = async () => {
       collect_interval: editForm.value.collect_interval,
       report_interval: editForm.value.report_interval,
       ping_mode: editForm.value.ping_mode,
-      is_hidden: editForm.value.is_hidden ? '1' : '0'
+      custom_ct: editForm.value.custom_ct,
+      custom_cu: editForm.value.custom_cu,
+      custom_cm: editForm.value.custom_cm,
+      custom_bd: editForm.value.custom_bd,
+      rx_correction: editForm.value.rx_correction,
+      tx_correction: editForm.value.tx_correction,
+      is_hidden: editForm.value.is_hidden ? '1' : '0',
+      offline_notify_disabled: editForm.value.offline_notify_disabled ? '1' : '0'
     }
 
     try {
@@ -1686,6 +1806,10 @@ const saveEdit = async () => {
 
   const openDeleteModal = (id) => {
     deleteServerId.value = id
+    const server = servers.value.find(s => s.id === id)
+    currentServerName.value = server?.name || ''
+    deleteTargetOs.value = 'linux'
+    uninstallCopied.value = false
     showDeleteModal.value = true
   }
 
@@ -1709,7 +1833,10 @@ const saveEdit = async () => {
   }
 
   const batchDelete = async () => {
-    if (selectedServers.value.length === 0) return alert(trans.value.selectServers)
+    if (selectedServers.value.length === 0) {
+      alertMessage.value = trans.value.selectServers
+      return
+    }
     if (!confirm(trans.value.confirmDeleteServers + selectedServers.value.length + trans.value.irreversible)) return
 
     try {
@@ -1783,7 +1910,8 @@ const getStatusText = (server) => {
     const file = e.target.files[0]
     if (!file) return
     if (file.size > 800 * 1024) {
-      alert(trans.value.imageSizeWarning)
+      alertMessage.value = trans.value.imageSizeWarning
+      return
     }
     const reader = new FileReader()
     reader.onload = function(event) {
@@ -1807,13 +1935,13 @@ const handleUpgradeDatabase = async () => {
   }
 }
 
-const handleRebuildDatabase = async () => {
-  dbOperation.value = 'rebuild'
+const handleClearHistory = async () => {
+  dbOperation.value = 'clearHistory'
   dbLoading.value = true
   dbResult.value = null
   
   try {
-    const result = await rebuildDatabase(selectedApiIndex.value)
+    const result = await clearHistory(selectedApiIndex.value)
     dbResult.value = result
   } catch (e) {
     dbResult.value = { success: false, error: e.message }
@@ -1863,12 +1991,12 @@ const sendTestNotification = async () => {
       tg_chat_id: settings.value.tg_chat_id
     })
     if (!result.error) {
-      alert(getMessage(result.data.message) || trans.value.testNotificationSent)
+      alertMessage.value = getMessage(result.data.message) || trans.value.testNotificationSent
     } else {
-      alert(getMessage(result.error) || trans.value.testNotificationFailed)
+      alertMessage.value = getMessage(result.error) || trans.value.testNotificationFailed
     }
   } catch (e) {
-    alert(trans.value.testNotificationFailed + ': ' + e.message)
+    alertMessage.value = trans.value.testNotificationFailed + ': ' + e.message
   } finally {
     testNotificationLoading.value = false
   }

@@ -16,6 +16,7 @@ CONFIG_DIR="/etc/config/cf-probe"
 CONFIG_FILE="${CONFIG_DIR}/config.conf"
 TRAFFIC_DATA_FILE="${CONFIG_DIR}/traffic.dat"
 OLD_TRAFFIC_DATA_FILE="/var/lib/cf-probe/traffic.dat"
+MAX_TRAFFIC_CORRECTION_GB=1000000
 
 # 颜色定义（busybox sh 下仅 printf '%b' 可用）
 RED='\033[0;31m'
@@ -39,9 +40,9 @@ mkdir -p /usr/local/bin /var/run /var/log 2>/dev/null || true
 # 统一输出工具（纯 POSIX sh）
 # ---------------------------------------------------------------
 print_banner() {
-    printf '%b╔══════════════════════════════════════════════════╗%b\n' "${CYAN}" "${NC}"
-    printf '%b║     CF-Server-Monitor 探针管理工具 (OpenWrt)     ║%b\n' "${CYAN}" "${NC}"
-    printf '%b╚══════════════════════════════════════════════════╝%b\n' "${CYAN}" "${NC}"
+    printf '%b╔═════════════════════════════════════╗%b\n' "${CYAN}" "${NC}"
+    printf '%b║     CF-Server-Monitor (OpenWrt)     ║%b\n' "${CYAN}" "${NC}"
+    printf '%b╚═════════════════════════════════════╝%b\n' "${CYAN}" "${NC}"
 }
 
 info()  { printf '%b[✓]%b %s\n' "${GREEN}" "${NC}" "$1"; }
@@ -68,8 +69,8 @@ print_usage() {
     echo "  -cm=HOST       自定义CM测试节点"
     echo "  -bd=HOST       自定义BD测试节点"
     echo "  -reset_day=N   流量重置日(1-31, 0=不重置)，默认1"
-    echo "  -rx_correction=N  下行流量校正(GB)，修改当月下行数据"
-    echo "  -tx_correction=N  上行流量校正(GB)，修改当月上行数据"
+    echo "  -rx_correction=N  下行流量校正(GB)，覆盖当月下行数据"
+    echo "  -tx_correction=N  上行流量校正(GB)，覆盖当月上行数据"
     echo ""
     echo "示例:"
     echo "  sh $0 install -id=server123 -secret=abc123 -url=https://worker.example.com"
@@ -81,6 +82,35 @@ print_usage() {
 
 sed_escape() {
     printf '%s' "${1:-}" | sed 's/\\/\\\\/g; s/&/\\&/g; s/@/\\@/g; s/\//\\\//g; s/|/\\|/g; s/"/\\"/g'
+}
+
+to_uint() {
+    _cf_num=$(printf '%s' "${1:-0}" | sed 's/^0*//')
+    case "${_cf_num}" in
+        ''|*[!0-9]*) echo 0 ;;
+        ?|??|???|????|?????|??????|???????|????????|?????????) echo "${_cf_num}" ;;
+        *) echo 0 ;;
+    esac
+}
+
+normalize_reset_day() {
+    _cf_day=$(printf '%s' "${1:-1}" | sed 's/^0*//')
+    case "${_cf_day}" in
+        '') echo 0 ;;
+        *[!0-9]*) echo 1 ;;
+        0|[1-9]|1[0-9]|2[0-9]|30|31) echo "${_cf_day}" ;;
+        *) echo 1 ;;
+    esac
+}
+
+normalize_probe_config() {
+    COLLECT_INTERVAL=$(to_uint "${COLLECT_INTERVAL:-0}")
+    REPORT_INTERVAL=$(to_uint "${REPORT_INTERVAL:-60}")
+    [ "${REPORT_INTERVAL}" -lt 1 ] && REPORT_INTERVAL=60
+    if [ "${COLLECT_INTERVAL}" -gt 0 ] && [ "${REPORT_INTERVAL}" -lt "${COLLECT_INTERVAL}" ]; then
+        REPORT_INTERVAL="${COLLECT_INTERVAL}"
+    fi
+    RESET_DAY=$(normalize_reset_day "${RESET_DAY:-1}")
 }
 
 check_root() {
@@ -351,6 +381,7 @@ echo $$ > "$PID_FILE"
 CONFIG_DIR="/etc/config/cf-probe"
 CONFIG_FILE="${CONFIG_DIR}/config.conf"
 TRAFFIC_DATA_FILE="${CONFIG_DIR}/traffic.dat"
+MAX_TRAFFIC_CORRECTION_GB=1000000
 
 if [ ! -f "${CONFIG_FILE}" ]; then
     echo "[ERROR] 配置文件不存在: ${CONFIG_FILE}"
@@ -368,6 +399,7 @@ CU_NODE=""
 CM_NODE=""
 BD_NODE=""
 RESET_DAY=""
+CONFIG_MD5=""
 
 while IFS='=' read -r key value; do
     case "$key" in
@@ -382,23 +414,209 @@ while IFS='=' read -r key value; do
         CM_NODE) CM_NODE="${value%\"}"; CM_NODE="${CM_NODE#\"}" ;;
         BD_NODE) BD_NODE="${value%\"}"; BD_NODE="${BD_NODE#\"}" ;;
         RESET_DAY) RESET_DAY="${value%\"}"; RESET_DAY="${RESET_DAY#\"}" ;;
+        CONFIG_MD5) CONFIG_MD5="${value%\"}"; CONFIG_MD5="${CONFIG_MD5#\"}" ;;
     esac
 done < "${CONFIG_FILE}"
 
-COLLECT_INTERVAL=${COLLECT_INTERVAL:-0}
-REPORT_INTERVAL=${REPORT_INTERVAL:-60}
+to_uint() {
+    _cf_num=$(printf '%s' "${1:-0}" | sed 's/^0*//')
+    case "${_cf_num}" in
+        ''|*[!0-9]*) echo 0 ;;
+        ?|??|???|????|?????|??????|???????|????????|?????????) echo "${_cf_num}" ;;
+        *) echo 0 ;;
+    esac
+}
+
+normalize_reset_day() {
+    _cf_day=$(printf '%s' "${1:-1}" | sed 's/^0*//')
+    case "${_cf_day}" in
+        '') echo 0 ;;
+        *[!0-9]*) echo 1 ;;
+        0|[1-9]|1[0-9]|2[0-9]|30|31) echo "${_cf_day}" ;;
+        *) echo 1 ;;
+    esac
+}
+
+COLLECT_INTERVAL=$(to_uint "${COLLECT_INTERVAL:-0}")
+REPORT_INTERVAL=$(to_uint "${REPORT_INTERVAL:-60}")
 PING_TYPE=${PING_TYPE:-http}
-[ -z "$RESET_DAY" ] && RESET_DAY=1
-case "$COLLECT_INTERVAL" in ''|*[!0-9]*) COLLECT_INTERVAL=0 ;; esac
-case "$REPORT_INTERVAL" in ''|*[!0-9]*) REPORT_INTERVAL=60 ;; esac
+RESET_DAY=$(normalize_reset_day "${RESET_DAY:-1}")
 [ "$REPORT_INTERVAL" -lt 1 ] && REPORT_INTERVAL=60
 if [ "$COLLECT_INTERVAL" -gt 0 ] && [ "$REPORT_INTERVAL" -lt "$COLLECT_INTERVAL" ]; then
     REPORT_INTERVAL="$COLLECT_INTERVAL"
 fi
 ACTIVE_INTERVAL="$REPORT_INTERVAL"
 [ "$COLLECT_INTERVAL" -gt 0 ] && ACTIVE_INTERVAL="$COLLECT_INTERVAL"
+CONFIG_MD5=${CONFIG_MD5:-none}
+DEBUG_MODE=${DEBUG_MODE:-0}
 
 SHM_DIR="/tmp"
+
+log_ts() {
+    date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%d %H:%M:%S'
+}
+
+log_info() {
+    echo "[INFO] $(log_ts) $*"
+}
+
+log_debug() {
+    [ "$DEBUG_MODE" = "1" ] && echo "[DEBUG] $(log_ts) $*"
+}
+
+log_warn_debug() {
+    [ "$DEBUG_MODE" = "1" ] && echo "[WARN] $(log_ts) $*"
+}
+
+persist_dynamic_config() {
+    _cf_tmp_file="${CONFIG_FILE}.tmp.$$"
+    awk -v collect="$1" -v report="$2" -v ping="$3" -v reset="$4" -v md5="$5" -v ct="$6" -v cu="$7" -v cm="$8" -v bd="$9" '
+        BEGIN { c=0; r=0; p=0; d=0; m=0; tct=0; tcu=0; tcm=0; tbd=0 }
+        /^COLLECT_INTERVAL=/ { print "COLLECT_INTERVAL=\"" collect "\""; c=1; next }
+        /^REPORT_INTERVAL=/ { print "REPORT_INTERVAL=\"" report "\""; r=1; next }
+        /^PING_TYPE=/ { print "PING_TYPE=\"" ping "\""; p=1; next }
+        /^RESET_DAY=/ { print "RESET_DAY=\"" reset "\""; d=1; next }
+        /^CONFIG_MD5=/ { print "CONFIG_MD5=\"" md5 "\""; m=1; next }
+        /^CT_NODE=/ { print "CT_NODE=\"" ct "\""; tct=1; next }
+        /^CU_NODE=/ { print "CU_NODE=\"" cu "\""; tcu=1; next }
+        /^CM_NODE=/ { print "CM_NODE=\"" cm "\""; tcm=1; next }
+        /^BD_NODE=/ { print "BD_NODE=\"" bd "\""; tbd=1; next }
+        { print }
+        END {
+            if (!c) print "COLLECT_INTERVAL=\"" collect "\""
+            if (!r) print "REPORT_INTERVAL=\"" report "\""
+            if (!p) print "PING_TYPE=\"" ping "\""
+            if (!d) print "RESET_DAY=\"" reset "\""
+            if (!m) print "CONFIG_MD5=\"" md5 "\""
+            if (!tct) print "CT_NODE=\"" ct "\""
+            if (!tcu) print "CU_NODE=\"" cu "\""
+            if (!tcm) print "CM_NODE=\"" cm "\""
+            if (!tbd) print "BD_NODE=\"" bd "\""
+        }
+    ' "$CONFIG_FILE" > "$_cf_tmp_file" || { rm -f "$_cf_tmp_file"; return 1; }
+    chmod 600 "$_cf_tmp_file" 2>/dev/null || true
+    mv "$_cf_tmp_file" "$CONFIG_FILE"
+}
+
+apply_remote_config() {
+    _cf_response_file="$1"
+    _cf_header_file="$2"
+    _cf_bytes=$(wc -c < "$_cf_response_file" 2>/dev/null || echo 9999)
+    [ "$_cf_bytes" -le 1024 ] || return 1
+    _cf_body=$(cat "$_cf_response_file" 2>/dev/null) || return 1
+    case "$_cf_body" in ''|*[!a-z0-9_=\&.\-]*) return 1 ;; esac
+    _cf_md5=$(awk 'tolower($1)=="x-agent-config-md5:" { gsub("\r", "", $2); print tolower($2); exit }' "$_cf_header_file")
+    [ "${#_cf_md5}" -eq 32 ] || return 1
+    case "$_cf_md5" in *[!0-9a-f]*) return 1 ;; esac
+    _cf_collect=$(printf '%s' "$_cf_body" | cut -d '&' -f 1); _cf_collect=${_cf_collect#collect_interval=}
+    _cf_ping=$(printf '%s' "$_cf_body" | cut -d '&' -f 2); _cf_ping=${_cf_ping#ping_mode=}
+    _cf_report=$(printf '%s' "$_cf_body" | cut -d '&' -f 3); _cf_report=${_cf_report#report_interval=}
+    _cf_reset=$(printf '%s' "$_cf_body" | cut -d '&' -f 4); _cf_reset=${_cf_reset#reset_day=}
+    _cf_schema=$(printf '%s' "$_cf_body" | cut -d '&' -f 5); _cf_schema=${_cf_schema#schema_version=}
+    _cf_ct=$(printf '%s' "$_cf_body" | cut -d '&' -f 6); _cf_ct=${_cf_ct#custom_ct=}
+    _cf_cu=$(printf '%s' "$_cf_body" | cut -d '&' -f 7); _cf_cu=${_cf_cu#custom_cu=}
+    _cf_cm=$(printf '%s' "$_cf_body" | cut -d '&' -f 8); _cf_cm=${_cf_cm#custom_cm=}
+    _cf_bd=$(printf '%s' "$_cf_body" | cut -d '&' -f 9); _cf_bd=${_cf_bd#custom_bd=}
+    case "$_cf_collect" in 0|1|2|5|10) ;; *) return 1 ;; esac
+    case "$_cf_report" in 30|60|120|180) ;; *) return 1 ;; esac
+    case "$_cf_ping" in http|tcp) ;; *) return 1 ;; esac
+    case "$_cf_reset" in 0|[1-9]|1[0-9]|2[0-9]|30|31) ;; *) return 1 ;; esac
+    [ "$_cf_schema" = "1" ] || return 1
+    [ "$_cf_report" -ge "$_cf_collect" ] || return 1
+    _cf_rx_corr=""
+    _cf_tx_corr=""
+    _cf_field_count=$(printf '%s' "$_cf_body" | awk -F'&' '{print NF}')
+    if [ "$_cf_field_count" -ge 11 ]; then
+        _cf_f10=$(printf '%s' "$_cf_body" | cut -d '&' -f 10)
+        _cf_f11=$(printf '%s' "$_cf_body" | cut -d '&' -f 11)
+        case "$_cf_f10" in rx_correction=*) _cf_rx_corr="${_cf_f10#rx_correction=}" ;; esac
+        case "$_cf_f11" in tx_correction=*) _cf_tx_corr="${_cf_f11#tx_correction=}" ;; esac
+    fi
+    persist_dynamic_config "$_cf_collect" "$_cf_report" "$_cf_ping" "$_cf_reset" "$_cf_md5" "$_cf_ct" "$_cf_cu" "$_cf_cm" "$_cf_bd" || return 1
+    COLLECT_INTERVAL="$_cf_collect"
+    REPORT_INTERVAL="$_cf_report"
+    PING_TYPE="$_cf_ping"
+    RESET_DAY="$_cf_reset"
+    CT_NODE="$_cf_ct"
+    CU_NODE="$_cf_cu"
+    CM_NODE="$_cf_cm"
+    BD_NODE="$_cf_bd"
+    CONFIG_MD5="$_cf_md5"
+    ACTIVE_INTERVAL="$REPORT_INTERVAL"
+    [ "$COLLECT_INTERVAL" -gt 0 ] && ACTIVE_INTERVAL="$COLLECT_INTERVAL"
+    log_info "Dynamic configuration applied: md5=${CONFIG_MD5} ct=${CT_NODE:-} cu=${CU_NODE:-} cm=${CM_NODE:-} bd=${BD_NODE:-}"
+    if [ -n "$_cf_rx_corr" ] || [ -n "$_cf_tx_corr" ]; then
+        if apply_traffic_correction "$_cf_rx_corr" "$_cf_tx_corr"; then
+            send_correction_confirm "$_cf_rx_corr" "$_cf_tx_corr" || true
+        fi
+    fi
+}
+
+normalize_correction_value() {
+    _cf_corr_val="${1:-0}"
+    [ -z "$_cf_corr_val" ] && _cf_corr_val=0
+    printf '%s' "$_cf_corr_val"
+}
+
+is_valid_correction_value() {
+    _cf_check_val=$(normalize_correction_value "$1")
+    awk -v v="$_cf_check_val" -v max="$MAX_TRAFFIC_CORRECTION_GB" 'BEGIN { exit !(v ~ /^[0-9]+([.][0-9]+)?$/ && v + 0 >= 0 && v + 0 <= max) }'
+}
+
+send_correction_confirm() {
+    _cf_ack_rx=$(normalize_correction_value "$1")
+    _cf_ack_tx=$(normalize_correction_value "$2")
+    is_valid_correction_value "$_cf_ack_rx" && is_valid_correction_value "$_cf_ack_tx" || return 1
+    _cf_ack_payload="{\"id\":\"$SERVER_ID\",\"secret\":\"$SECRET\",\"rx_correction\":$_cf_ack_rx,\"tx_correction\":$_cf_ack_tx}"
+    _cf_ack_http=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+        -H "Content-Type: application/json" \
+        -d "$_cf_ack_payload" -m 4 --connect-timeout 2 "$WORKER_URL" 2>/dev/null || echo 000)
+    case "$_cf_ack_http" in ''|*[!0-9]*) _cf_ack_http=000 ;; esac
+    if [ "$_cf_ack_http" -ge 200 ] && [ "$_cf_ack_http" -lt 300 ]; then
+        log_info "Traffic correction confirm sent: RX=${_cf_ack_rx}GB TX=${_cf_ack_tx}GB"
+        return 0
+    fi
+    log_warn_debug "Traffic correction confirm failed: http=${_cf_ack_http} RX=${_cf_ack_rx}GB TX=${_cf_ack_tx}GB"
+    return 1
+}
+
+apply_traffic_correction() {
+    local rx_val="${1:-0}"
+    local tx_val="${2:-0}"
+    [ -z "$rx_val" ] && rx_val=0
+    [ -z "$tx_val" ] && tx_val=0
+    is_valid_correction_value "$rx_val" && is_valid_correction_value "$tx_val" || return 1
+    local rx_bytes=0 tx_bytes=0
+    rx_bytes=$(printf '%s' "$rx_val" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+    tx_bytes=$(printf '%s' "$tx_val" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+    local saved_rx_prev=0 saved_tx_prev=0 saved_rx_period=0 saved_tx_period=0 saved_last_check=0 saved_period_start=0
+    if [ -f "${TRAFFIC_DATA_FILE}" ]; then
+        while IFS='=' read -r key value; do
+            case "$key" in
+                RX_PREV) saved_rx_prev="${value%%\"*}"; saved_rx_prev="${saved_rx_prev#\"}" ;;
+                TX_PREV) saved_tx_prev="${value%%\"*}"; saved_tx_prev="${saved_tx_prev#\"}" ;;
+                RX_PERIOD) saved_rx_period="${value%%\"*}"; saved_rx_period="${saved_rx_period#\"}" ;;
+                TX_PERIOD) saved_tx_period="${value%%\"*}"; saved_tx_period="${saved_tx_period#\"}" ;;
+                LAST_CHECK) saved_last_check="${value%%\"*}"; saved_last_check="${saved_last_check#\"}" ;;
+                PERIOD_START) saved_period_start="${value%%\"*}"; saved_period_start="${saved_period_start#\"}" ;;
+            esac
+        done < "${TRAFFIC_DATA_FILE}"
+    fi
+    local now_ts
+    now_ts=$(date +%s)
+    saved_rx_period=${rx_bytes}
+    saved_tx_period=${tx_bytes}
+    log_info "Traffic correction applied: RX=${rx_val}GB (${rx_bytes} bytes) TX=${tx_val}GB (${tx_bytes} bytes)"
+    mkdir -p "${CONFIG_DIR}" 2>/dev/null || true
+    cat > "${TRAFFIC_DATA_FILE}" << EOF
+RX_PREV=${saved_rx_prev}
+TX_PREV=${saved_tx_prev}
+RX_PERIOD=${saved_rx_period}
+TX_PERIOD=${saved_tx_period}
+LAST_CHECK=${now_ts}
+PERIOD_START=${saved_period_start}
+EOF
+}
 
 escape_json() {
     printf '%s' "${1:-}" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\n\r' '  '
@@ -421,14 +639,14 @@ is_leap_year() {
 }
 
 get_period_start_ts() {
-    reset_day="$1"
+    reset_day=$(normalize_reset_day "${1:-1}")
     [ "$reset_day" -eq 0 ] 2>/dev/null && { echo "0"; return; }
     now_ts="$2"
 
     # 只用 epoch 秒
     year=$(date +%Y 2>/dev/null || echo 1970)
     month=$(date +%m 2>/dev/null || echo 1)
-    day=$(date +%d 2>/dev/null || echo 1)
+    day=$(to_uint "$(date +%d 2>/dev/null || echo 1)")
 
     # BusyBox fallback（无 date -d 时）
     if [ "${year}" = "1970" ]; then
@@ -830,7 +1048,18 @@ EOF
 EOF
 )
         fi
-        curl -s -o /dev/null -X POST -H "Content-Type: application/json" -d "$PAYLOAD" -m 4 --connect-timeout 2 "$WORKER_URL" 2>/dev/null || true
+        REPORT_RESPONSE_FILE="/tmp/.cf_probe_response.$$"
+        REPORT_HEADER_FILE="/tmp/.cf_probe_headers.$$"
+        REPORT_HTTP_CODE=$(curl -sS -D "$REPORT_HEADER_FILE" -o "$REPORT_RESPONSE_FILE" -w "%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Agent-Config-Schema: 1" \
+            -H "X-Agent-Config-Md5: ${CONFIG_MD5:-none}" \
+            -d "$PAYLOAD" -m 8 --connect-timeout 3 "$WORKER_URL" 2>/dev/null || echo 000)
+        case "$REPORT_HTTP_CODE" in ''|*[!0-9]*) REPORT_HTTP_CODE=000 ;; esac
+        if [ "$REPORT_HTTP_CODE" = "200" ]; then
+            apply_remote_config "$REPORT_RESPONSE_FILE" "$REPORT_HEADER_FILE" || true
+        fi
+        rm -f "$REPORT_RESPONSE_FILE" "$REPORT_HEADER_FILE" 2>/dev/null || true
         SAMPLES_JSON=""
         SAMPLE_COUNT=0
         LAST_REPORT_TIME=$LOOP_START_TIME
@@ -1087,6 +1316,7 @@ install_probe() {
             REPORT_INTERVAL=${REPORT_INTERVAL:-60}
             PING_TYPE=${PING_TYPE:-http}
             [ -z "$RESET_DAY" ] && RESET_DAY=1
+            normalize_probe_config
             
             step "更新配置文件..."
             cat > "${CONFIG_FILE}" << EOF
@@ -1101,7 +1331,9 @@ CU_NODE="${CU_NODE:-}"
 CM_NODE="${CM_NODE:-}"
 BD_NODE="${BD_NODE:-}"
 RESET_DAY="${RESET_DAY}"
+CONFIG_MD5="none"
 EOF
+            chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
             info "配置文件已更新: ${CONFIG_FILE}"
         else
             step "从配置文件读取参数..."
@@ -1146,6 +1378,7 @@ EOF
         REPORT_INTERVAL=${REPORT_INTERVAL:-60}
         PING_TYPE=${PING_TYPE:-http}
         [ -z "$RESET_DAY" ] && RESET_DAY=1
+        normalize_probe_config
 
         step "创建配置目录..."
         mkdir -p "${CONFIG_DIR}" 2>/dev/null || true
@@ -1173,12 +1406,15 @@ CU_NODE="${CU_NODE:-}"
 CM_NODE="${CM_NODE:-}"
 BD_NODE="${BD_NODE:-}"
 RESET_DAY="${RESET_DAY}"
+CONFIG_MD5="none"
 EOF
+        chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
         info "配置文件已生成: ${CONFIG_FILE}"
     fi
 
     COLLECT_INTERVAL=${COLLECT_INTERVAL:-0}
     REPORT_INTERVAL=${REPORT_INTERVAL:-60}
+    normalize_probe_config
 
     if [ -n "${RX_CORRECTION}" ] || [ -n "${TX_CORRECTION}" ]; then
         step "应用流量校正..."

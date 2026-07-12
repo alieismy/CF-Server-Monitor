@@ -24,11 +24,17 @@ CONFIG_DIR="/etc/config/cf-probe"
 CONFIG_FILE="${CONFIG_DIR}/config.conf"
 TRAFFIC_DATA_FILE="${CONFIG_DIR}/traffic.dat"
 OLD_TRAFFIC_DATA_FILE="/var/lib/cf-probe/traffic.dat"
+MAX_TRAFFIC_CORRECTION_GB=1000000
+CONTAINER_PID_FILE="/run/cf-probe.pid"
+CONTAINER_LOG_FILE="/var/log/cf-probe.log"
+
+# 全局运行模式: systemd | container
+RUNTIME_MODE="systemd"
 
 print_banner() {
-    echo -e "${CYAN}╔══════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║     CF-Server-Monitor 探针管理工具 (Enterprise) ║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔═══════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║     CF-Server-Monitor (Enterprise)    ║${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════╝${NC}"
 }
 
 info() { echo -e "${GREEN}[✓]${NC} $1"; }
@@ -55,8 +61,9 @@ print_usage() {
     echo "  -cm=HOST       自定义CM测试节点"
     echo "  -bd=HOST       自定义BD测试节点"
     echo "  -reset_day=N   流量重置日(1-31, 0=不重置)，默认1"
-    echo "  -rx_correction=N  下行流量校正(GB)，修改当月下行数据"
-    echo "  -tx_correction=N  上行流量校正(GB)，修改当月上行数据"
+    echo "  -rx_correction=N  下行流量校正(GB)，覆盖当月下行数据"
+    echo "  -tx_correction=N  上行流量校正(GB)，覆盖当月上行数据"
+    echo "  -debug=1       输出上报调试日志，默认0"
     echo ""
     echo "示例:"
     echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com"
@@ -64,7 +71,25 @@ print_usage() {
     echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -ct=ct.example.com -cu=cu.example.com"
     echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15"
     echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -rx_correction=10 -tx_correction=5"
+    echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -debug=1"
     exit 1
+}
+
+normalize_debug_mode() {
+    case "${1:-0}" in
+        1|true|TRUE|yes|YES|on|ON) echo "1" ;;
+        *) echo "0" ;;
+    esac
+}
+
+detect_runtime_mode() {
+    if [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ] && [ -d /run/systemd/system ]; then
+        RUNTIME_MODE="systemd"
+        info "Runtime mode: systemd"
+    else
+        RUNTIME_MODE="container"
+        warn "Runtime mode: container"
+    fi
 }
 
 sed_escape() {
@@ -126,20 +151,27 @@ install_deps() {
             error "无法自动安装依赖 [$cmd]，请手动安装后重试。"
         fi
     done
-    
-    if ! command -v systemctl >/dev/null 2>&1; then
-        error "本脚本仅支持基于 systemd 的 Linux 发行版。"
-    fi
+
     info "基础依赖组件检查通过"
 }
 
 stop_old_service() {
     step "清理可能存在的旧服务进程..."
-    if systemctl is-active --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
-        systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
+            systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
+        fi
+        if systemctl is-enabled --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
+            systemctl disable "${SERVICE_NAME}.service" 2>/dev/null || true
+        fi
     fi
-    if systemctl is-enabled --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
-        systemctl disable "${SERVICE_NAME}.service" 2>/dev/null || true
+    if [ -f "${CONTAINER_PID_FILE}" ]; then
+        local old_pid
+        old_pid=$(cat "${CONTAINER_PID_FILE}" 2>/dev/null || echo "")
+        if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+            kill "$old_pid" 2>/dev/null || true
+        fi
+        rm -f "${CONTAINER_PID_FILE}"
     fi
     if pgrep -f "${SERVICE_NAME}.sh" >/dev/null 2>&1; then
         pkill -9 -f "${SERVICE_NAME}.sh" 2>/dev/null || true
@@ -156,6 +188,7 @@ set +eu
 CONFIG_DIR="/etc/config/cf-probe"
 CONFIG_FILE="${CONFIG_DIR}/config.conf"
 TRAFFIC_DATA_FILE="${CONFIG_DIR}/traffic.dat"
+MAX_TRAFFIC_CORRECTION_GB=1000000
 
 if [ ! -f "${CONFIG_FILE}" ]; then
     echo "[ERROR] 配置文件不存在: ${CONFIG_FILE}"
@@ -175,12 +208,19 @@ while IFS='=' read -r key value; do
         CM_NODE) CM_NODE="${value%\"}"; CM_NODE="${CM_NODE#\"}" ;;
         BD_NODE) BD_NODE="${value%\"}"; BD_NODE="${BD_NODE#\"}" ;;
         RESET_DAY) RESET_DAY="${value%\"}"; RESET_DAY="${RESET_DAY#\"}" ;;
+        DEBUG_MODE) DEBUG_MODE="${value%\"}"; DEBUG_MODE="${DEBUG_MODE#\"}" ;;
+        CONFIG_MD5) CONFIG_MD5="${value%\"}"; CONFIG_MD5="${CONFIG_MD5#\"}" ;;
     esac
 done < "${CONFIG_FILE}"
 
 COLLECT_INTERVAL=${COLLECT_INTERVAL:-0}
 REPORT_INTERVAL=${REPORT_INTERVAL:-60}
 PING_TYPE=${PING_TYPE:-http}
+DEBUG_MODE=${DEBUG_MODE:-0}
+case "$DEBUG_MODE" in
+    1|true|TRUE|yes|YES|on|ON) DEBUG_MODE=1 ;;
+    *) DEBUG_MODE=0 ;;
+esac
 [ -z "$RESET_DAY" ] && RESET_DAY=1
 case "$COLLECT_INTERVAL" in ''|*[!0-9]*) COLLECT_INTERVAL=0 ;; esac
 case "$REPORT_INTERVAL" in ''|*[!0-9]*) REPORT_INTERVAL=60 ;; esac
@@ -190,6 +230,199 @@ if [ "$COLLECT_INTERVAL" -gt 0 ] && [ "$REPORT_INTERVAL" -lt "$COLLECT_INTERVAL"
 fi
 ACTIVE_INTERVAL="$REPORT_INTERVAL"
 [ "$COLLECT_INTERVAL" -gt 0 ] && ACTIVE_INTERVAL="$COLLECT_INTERVAL"
+CONFIG_MD5=${CONFIG_MD5:-none}
+
+log_ts() {
+    date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%d %H:%M:%S'
+}
+
+log_info() {
+    echo "[INFO] $(log_ts) $*"
+}
+
+log_debug() {
+    [ "$DEBUG_MODE" = "1" ] && echo "[DEBUG] $(log_ts) $*"
+}
+
+log_warn_debug() {
+    [ "$DEBUG_MODE" = "1" ] && echo "[WARN] $(log_ts) $*"
+}
+
+persist_dynamic_config() {
+    local tmp_file="${CONFIG_FILE}.tmp.$$"
+    awk \
+        -v collect="$1" \
+        -v report="$2" \
+        -v ping="$3" \
+        -v reset="$4" \
+        -v md5="$5" \
+        -v ct="$6" \
+        -v cu="$7" \
+        -v cm="$8" \
+        -v bd="$9" '
+        BEGIN { c=0; r=0; p=0; d=0; m=0; tct=0; tcu=0; tcm=0; tbd=0 }
+        /^COLLECT_INTERVAL=/ { print "COLLECT_INTERVAL=\"" collect "\""; c=1; next }
+        /^REPORT_INTERVAL=/ { print "REPORT_INTERVAL=\"" report "\""; r=1; next }
+        /^PING_TYPE=/ { print "PING_TYPE=\"" ping "\""; p=1; next }
+        /^RESET_DAY=/ { print "RESET_DAY=\"" reset "\""; d=1; next }
+        /^CONFIG_MD5=/ { print "CONFIG_MD5=\"" md5 "\""; m=1; next }
+        /^CT_NODE=/ { print "CT_NODE=\"" ct "\""; tct=1; next }
+        /^CU_NODE=/ { print "CU_NODE=\"" cu "\""; tcu=1; next }
+        /^CM_NODE=/ { print "CM_NODE=\"" cm "\""; tcm=1; next }
+        /^BD_NODE=/ { print "BD_NODE=\"" bd "\""; tbd=1; next }
+        { print }
+        END {
+            if (!c) print "COLLECT_INTERVAL=\"" collect "\""
+            if (!r) print "REPORT_INTERVAL=\"" report "\""
+            if (!p) print "PING_TYPE=\"" ping "\""
+            if (!d) print "RESET_DAY=\"" reset "\""
+            if (!m) print "CONFIG_MD5=\"" md5 "\""
+            if (!tct) print "CT_NODE=\"" ct "\""
+            if (!tcu) print "CU_NODE=\"" cu "\""
+            if (!tcm) print "CM_NODE=\"" cm "\""
+            if (!tbd) print "BD_NODE=\"" bd "\""
+        }
+    ' "$CONFIG_FILE" > "$tmp_file" || { rm -f "$tmp_file"; return 1; }
+    chmod 600 "$tmp_file" 2>/dev/null || true
+    mv "$tmp_file" "$CONFIG_FILE"
+}
+
+apply_remote_config() {
+    local response_file="$1" header_file="$2" body bytes new_md5
+    local new_collect new_ping new_report new_reset new_schema new_ct new_cu new_cm new_bd
+    local new_rx_corr new_tx_corr
+
+    bytes=$(wc -c < "$response_file" 2>/dev/null || echo 9999)
+    [ "$bytes" -le 1024 ] || return 1
+    body=$(cat "$response_file" 2>/dev/null) || return 1
+    case "$body" in ''|*[!a-z0-9_=\&.\-]*) return 1 ;; esac
+
+    new_md5=$(awk 'tolower($1)=="x-agent-config-md5:" { gsub("\r", "", $2); print tolower($2); exit }' "$header_file")
+    [ "${#new_md5}" -eq 32 ] || return 1
+    case "$new_md5" in *[!0-9a-f]*) return 1 ;; esac
+
+    new_collect=$(printf '%s' "$body" | cut -d '&' -f 1); new_collect=${new_collect#collect_interval=}
+    new_ping=$(printf '%s' "$body" | cut -d '&' -f 2); new_ping=${new_ping#ping_mode=}
+    new_report=$(printf '%s' "$body" | cut -d '&' -f 3); new_report=${new_report#report_interval=}
+    new_reset=$(printf '%s' "$body" | cut -d '&' -f 4); new_reset=${new_reset#reset_day=}
+    new_schema=$(printf '%s' "$body" | cut -d '&' -f 5); new_schema=${new_schema#schema_version=}
+    new_ct=$(printf '%s' "$body" | cut -d '&' -f 6); new_ct=${new_ct#custom_ct=}
+    new_cu=$(printf '%s' "$body" | cut -d '&' -f 7); new_cu=${new_cu#custom_cu=}
+    new_cm=$(printf '%s' "$body" | cut -d '&' -f 8); new_cm=${new_cm#custom_cm=}
+    new_bd=$(printf '%s' "$body" | cut -d '&' -f 9); new_bd=${new_bd#custom_bd=}
+
+    case "$new_collect" in 0|1|2|5|10) ;; *) return 1 ;; esac
+    case "$new_report" in 30|60|120|180) ;; *) return 1 ;; esac
+    case "$new_ping" in http|tcp) ;; *) return 1 ;; esac
+    case "$new_reset" in 0|[1-9]|1[0-9]|2[0-9]|30|31) ;; *) return 1 ;; esac
+    [ "$new_schema" = "1" ] || return 1
+    [ "$new_report" -ge "$new_collect" ] || return 1
+
+    new_rx_corr=""
+    new_tx_corr=""
+    local field_count
+    field_count=$(printf '%s' "$body" | awk -F'&' '{print NF}')
+    if [ "$field_count" -ge 11 ]; then
+        local f10 f11
+        f10=$(printf '%s' "$body" | cut -d '&' -f 10)
+        f11=$(printf '%s' "$body" | cut -d '&' -f 11)
+        case "$f10" in rx_correction=*) new_rx_corr="${f10#rx_correction=}" ;; esac
+        case "$f11" in tx_correction=*) new_tx_corr="${f11#tx_correction=}" ;; esac
+    fi
+
+    persist_dynamic_config "$new_collect" "$new_report" "$new_ping" "$new_reset" "$new_md5" "$new_ct" "$new_cu" "$new_cm" "$new_bd" || return 1
+    COLLECT_INTERVAL="$new_collect"
+    REPORT_INTERVAL="$new_report"
+    PING_TYPE="$new_ping"
+    RESET_DAY="$new_reset"
+    CT_NODE="$new_ct"
+    CU_NODE="$new_cu"
+    CM_NODE="$new_cm"
+    BD_NODE="$new_bd"
+    CONFIG_MD5="$new_md5"
+    ACTIVE_INTERVAL="$REPORT_INTERVAL"
+    [ "$COLLECT_INTERVAL" -gt 0 ] && ACTIVE_INTERVAL="$COLLECT_INTERVAL"
+    log_info "Dynamic configuration applied: md5=${CONFIG_MD5} ct=${CT_NODE:-} cu=${CU_NODE:-} cm=${CM_NODE:-} bd=${BD_NODE:-}"
+
+    if [ -n "$new_rx_corr" ] || [ -n "$new_tx_corr" ]; then
+        if apply_traffic_correction "$new_rx_corr" "$new_tx_corr"; then
+            send_correction_confirm "$new_rx_corr" "$new_tx_corr" || true
+        fi
+    fi
+}
+
+normalize_correction_value() {
+    local val="${1:-0}"
+    [ -z "$val" ] && val=0
+    printf '%s' "$val"
+}
+
+is_valid_correction_value() {
+    local val
+    val=$(normalize_correction_value "$1")
+    awk -v v="$val" -v max="$MAX_TRAFFIC_CORRECTION_GB" 'BEGIN { exit !(v ~ /^[0-9]+([.][0-9]+)?$/ && v + 0 >= 0 && v + 0 <= max) }'
+}
+
+send_correction_confirm() {
+    local rx_val tx_val payload http_code
+    rx_val=$(normalize_correction_value "$1")
+    tx_val=$(normalize_correction_value "$2")
+    is_valid_correction_value "$rx_val" && is_valid_correction_value "$tx_val" || return 1
+    payload="{\"id\":\"$SERVER_ID\",\"secret\":\"$SECRET\",\"rx_correction\":$rx_val,\"tx_correction\":$tx_val}"
+    http_code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
+        -H "Content-Type: application/json" \
+        -d "$payload" -m 4 --connect-timeout 2 "$WORKER_URL" 2>/dev/null || echo 000)
+    case "$http_code" in ''|*[!0-9]*) http_code=000 ;; esac
+    if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+        log_info "Traffic correction confirm sent: RX=${rx_val}GB TX=${tx_val}GB"
+        return 0
+    fi
+    log_warn_debug "Traffic correction confirm failed: http=${http_code} RX=${rx_val}GB TX=${tx_val}GB"
+    return 1
+}
+
+apply_traffic_correction() {
+    local rx_val="${1:-0}"
+    local tx_val="${2:-0}"
+    [ -z "$rx_val" ] && rx_val=0
+    [ -z "$tx_val" ] && tx_val=0
+    is_valid_correction_value "$rx_val" && is_valid_correction_value "$tx_val" || return 1
+
+    local rx_bytes=0 tx_bytes=0
+    rx_bytes=$(printf '%s' "$rx_val" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+    tx_bytes=$(printf '%s' "$tx_val" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+
+    local saved_rx_prev=0 saved_tx_prev=0 saved_rx_period=0 saved_tx_period=0 saved_last_check=0 saved_period_start=0
+    if [ -f "${TRAFFIC_DATA_FILE}" ]; then
+        while IFS='=' read -r key value; do
+            case "$key" in
+                RX_PREV) saved_rx_prev="${value%%\"*}"; saved_rx_prev="${saved_rx_prev#\"}" ;;
+                TX_PREV) saved_tx_prev="${value%%\"*}"; saved_tx_prev="${saved_tx_prev#\"}" ;;
+                RX_PERIOD) saved_rx_period="${value%%\"*}"; saved_rx_period="${saved_rx_period#\"}" ;;
+                TX_PERIOD) saved_tx_period="${value%%\"*}"; saved_tx_period="${saved_tx_period#\"}" ;;
+                LAST_CHECK) saved_last_check="${value%%\"*}"; saved_last_check="${saved_last_check#\"}" ;;
+                PERIOD_START) saved_period_start="${value%%\"*}"; saved_period_start="${saved_period_start#\"}" ;;
+            esac
+        done < "${TRAFFIC_DATA_FILE}"
+    fi
+
+    local now_ts
+    now_ts=$(date +%s)
+
+    saved_rx_period=${rx_bytes}
+    saved_tx_period=${tx_bytes}
+    log_info "Traffic correction applied: RX=${rx_val}GB (${rx_bytes} bytes) TX=${tx_val}GB (${tx_bytes} bytes)"
+
+    mkdir -p "${CONFIG_DIR}" 2>/dev/null || true
+    cat > "${TRAFFIC_DATA_FILE}" << EOF
+RX_PREV=${saved_rx_prev}
+TX_PREV=${saved_tx_prev}
+RX_PERIOD=${saved_rx_period}
+TX_PERIOD=${saved_tx_period}
+LAST_CHECK=${now_ts}
+PERIOD_START=${saved_period_start}
+EOF
+}
 
 # 严苛环境下的规范 JSON 字段转义函数
 escape_json() {
@@ -520,7 +753,14 @@ PREV_CPU_IDLE=$(echo "$CPU_STAT" | awk '{print $2}'); PREV_CPU_IDLE=${PREV_CPU_I
 
 PREV_LOOP_TIME=$(date +%s)
 
-echo "[INFO] CF-Server-Monitor Probe Engine Started Successfully."
+if [ -z "${SERVER_ID:-}" ] || [ -z "${SECRET:-}" ] || [ -z "${WORKER_URL:-}" ]; then
+    echo "[ERROR] $(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date '+%Y-%m-%d %H:%M:%S') 配置缺失: SERVER_ID/SECRET/WORKER_URL 不能为空"
+    exit 1
+fi
+
+log_info "CF-Server-Monitor Probe Engine Started Successfully."
+log_debug "Config: id=${SERVER_ID} url=${WORKER_URL} report_interval=${REPORT_INTERVAL}s collect_interval=${COLLECT_INTERVAL}s active_interval=${ACTIVE_INTERVAL}s ping=${PING_TYPE} reset_day=${RESET_DAY} secret_len=${#SECRET}"
+log_debug "Nodes: ct=${CT_NODE:-} cu=${CU_NODE:-} cm=${CM_NODE:-} bd=${BD_NODE:-}"
 
 # 核心架构升级：在这里脱离主循环，静默启动常驻网络 Worker 协程，无 wait 干扰
 run_network_worker &
@@ -534,6 +774,7 @@ while true; do
     
     # Worker 进程健康检查与自动重启
     if ! kill -0 "$WORKER_PID" 2>/dev/null; then
+        log_warn_debug "Network worker exited; restarting"
         run_network_worker &
         WORKER_PID=$!
     fi
@@ -716,7 +957,30 @@ EOF
 EOF
 )
         fi
-        curl -s -o /dev/null -X POST -H "Content-Type: application/json" -d "$PAYLOAD" -m 4 --connect-timeout 2 "$WORKER_URL" 2>/dev/null || true
+        PAYLOAD_BYTES=$(printf "%s" "$PAYLOAD" | wc -c | awk '{print $1}')
+        log_debug "Report attempt: url=${WORKER_URL} samples=${SAMPLE_COUNT} payload_bytes=${PAYLOAD_BYTES}"
+
+        REPORT_RESPONSE_FILE="/dev/shm/.cf_probe_response.$$"
+        REPORT_HEADER_FILE="/dev/shm/.cf_probe_headers.$$"
+        REPORT_ERROR_FILE="/dev/shm/.cf_probe_error.$$"
+        REPORT_HTTP_CODE=$(curl -sS -D "$REPORT_HEADER_FILE" -o "$REPORT_RESPONSE_FILE" -w "%{http_code}" -X POST \
+            -H "Content-Type: application/json" \
+            -H "X-Agent-Config-Schema: 1" \
+            -H "X-Agent-Config-Md5: ${CONFIG_MD5:-none}" \
+            -d "$PAYLOAD" -m 8 --connect-timeout 3 "$WORKER_URL" 2>"$REPORT_ERROR_FILE")
+        REPORT_CURL_EXIT=$?
+        case "$REPORT_HTTP_CODE" in ''|*[!0-9]*) REPORT_HTTP_CODE=000 ;; esac
+        REPORT_RESPONSE=$(head -c 300 "$REPORT_RESPONSE_FILE" 2>/dev/null | tr '\r\n' '  ')
+        REPORT_ERROR=$(head -c 300 "$REPORT_ERROR_FILE" 2>/dev/null | tr '\r\n' '  ')
+        if [ "$REPORT_CURL_EXIT" -ne 0 ] || [ "$REPORT_HTTP_CODE" -lt 200 ] || [ "$REPORT_HTTP_CODE" -ge 300 ]; then
+            log_warn_debug "Report failed: curl_exit=${REPORT_CURL_EXIT} http=${REPORT_HTTP_CODE} samples=${SAMPLE_COUNT} payload_bytes=${PAYLOAD_BYTES} response=${REPORT_RESPONSE} error=${REPORT_ERROR}"
+        else
+            if [ "$REPORT_HTTP_CODE" = "200" ] && ! apply_remote_config "$REPORT_RESPONSE_FILE" "$REPORT_HEADER_FILE"; then
+                log_warn_debug "Dynamic configuration rejected"
+            fi
+            log_debug "Report success: http=${REPORT_HTTP_CODE} samples=${SAMPLE_COUNT} payload_bytes=${PAYLOAD_BYTES} response=${REPORT_RESPONSE}"
+        fi
+        rm -f "$REPORT_RESPONSE_FILE" "$REPORT_HEADER_FILE" "$REPORT_ERROR_FILE" 2>/dev/null || true
         SAMPLES_JSON=""
         SAMPLE_COUNT=0
         LAST_REPORT_TIME=$LOOP_START_TIME
@@ -736,6 +1000,8 @@ PROBE_EOF
 }
 
 create_service() {
+    [ "$RUNTIME_MODE" != "systemd" ] && return
+
     step "构建高兼容、全版本通用的 Systemd 守护配置..."
     
     cat > "${SERVICE_FILE}" << EOF
@@ -769,16 +1035,38 @@ EOF
 }
 
 start_service() {
-    step "加载进程树并激活监控探针..."
-    systemctl daemon-reload
-    systemctl enable ${SERVICE_NAME}.service >/dev/null 2>&1 || true
-    systemctl restart ${SERVICE_NAME}.service
-    
-    sleep 1.5
-    if systemctl is-active --quiet ${SERVICE_NAME}.service; then
-        info "探针监控引擎已进入平稳运行状态。"
+    if [ "$RUNTIME_MODE" = "systemd" ]; then
+        step "加载进程树并激活监控探针..."
+        systemctl daemon-reload
+        systemctl enable ${SERVICE_NAME}.service >/dev/null 2>&1 || true
+        systemctl restart ${SERVICE_NAME}.service
+
+        sleep 1.5
+        if systemctl is-active --quiet ${SERVICE_NAME}.service; then
+            info "探针监控引擎已进入平稳运行状态。"
+        else
+            error "探针服务未能启动成功。请执行命令排查原因: journalctl -u ${SERVICE_NAME} -n 20"
+        fi
     else
-        error "探针服务未能启动成功。请执行命令排查原因: journalctl -u ${SERVICE_NAME} -n 20"
+        step "以容器模式启动监控探针..."
+
+        if [ -f "${CONTAINER_PID_FILE}" ] && kill -0 "$(cat "${CONTAINER_PID_FILE}")" 2>/dev/null; then
+            info "探针已在运行中 (PID: $(cat "${CONTAINER_PID_FILE}"))"
+            return
+        fi
+
+        mkdir -p /var/log 2>/dev/null || true
+
+        nohup bash "${SCRIPT_FILE}" >> "${CONTAINER_LOG_FILE}" 2>&1 &
+        local pid=$!
+        echo "$pid" > "${CONTAINER_PID_FILE}"
+
+        sleep 1.5
+        if kill -0 "$pid" 2>/dev/null; then
+            info "探针监控引擎已启动 (PID: $pid)"
+        else
+            error "探针启动失败，请查看日志: ${CONTAINER_LOG_FILE}"
+        fi
     fi
 }
 
@@ -796,6 +1084,7 @@ install_probe() {
     RESET_DAY=""
     RX_CORRECTION=""
     TX_CORRECTION=""
+    DEBUG_MODE=""
 
     for arg in "$@"; do
         case "$arg" in
@@ -812,12 +1101,14 @@ install_probe() {
             -reset_day=*) RESET_DAY="${arg#-reset_day=}" ;;
             -rx_correction=*) RX_CORRECTION="${arg#-rx_correction=}" ;;
             -tx_correction=*) TX_CORRECTION="${arg#-tx_correction=}" ;;
+            -debug=*) DEBUG_MODE="${arg#-debug=}" ;;
         esac
     done
 
     print_banner
     check_root
     detect_os
+    detect_runtime_mode
     install_deps
     stop_old_service
 
@@ -829,6 +1120,7 @@ install_probe() {
             REPORT_INTERVAL=${REPORT_INTERVAL:-60}
             PING_TYPE=${PING_TYPE:-http}
             [ -z "$RESET_DAY" ] && RESET_DAY=1
+            DEBUG_MODE=$(normalize_debug_mode "${DEBUG_MODE:-0}")
             
             step "更新配置文件..."
             cat > "${CONFIG_FILE}" << EOF
@@ -843,7 +1135,10 @@ CU_NODE="${CU_NODE:-}"
 CM_NODE="${CM_NODE:-}"
 BD_NODE="${BD_NODE:-}"
 RESET_DAY="${RESET_DAY}"
+DEBUG_MODE="${DEBUG_MODE}"
+CONFIG_MD5="none"
 EOF
+            chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
             info "配置文件已更新: ${CONFIG_FILE}"
         else
             step "从配置文件读取参数..."
@@ -860,6 +1155,7 @@ EOF
                     CM_NODE) CM_NODE="${value%\"}"; CM_NODE="${CM_NODE#\"}" ;;
                     BD_NODE) BD_NODE="${value%\"}"; BD_NODE="${BD_NODE#\"}" ;;
                     RESET_DAY) RESET_DAY="${value%\"}"; RESET_DAY="${RESET_DAY#\"}" ;;
+                    DEBUG_MODE) DEBUG_MODE="${value%\"}"; DEBUG_MODE="${DEBUG_MODE#\"}" ;;
                 esac
             done < "${CONFIG_FILE}"
         fi
@@ -899,6 +1195,7 @@ EOF
         REPORT_INTERVAL=${REPORT_INTERVAL:-60}
         PING_TYPE=${PING_TYPE:-http}
         [ -z "$RESET_DAY" ] && RESET_DAY=1
+        DEBUG_MODE=$(normalize_debug_mode "${DEBUG_MODE:-0}")
 
         step "创建配置目录..."
         mkdir -p "${CONFIG_DIR}" 2>/dev/null || true
@@ -926,12 +1223,16 @@ CU_NODE="${CU_NODE:-}"
 CM_NODE="${CM_NODE:-}"
 BD_NODE="${BD_NODE:-}"
 RESET_DAY="${RESET_DAY}"
+DEBUG_MODE="${DEBUG_MODE}"
+CONFIG_MD5="none"
 EOF
+        chmod 600 "${CONFIG_FILE}" 2>/dev/null || true
         info "配置文件已生成: ${CONFIG_FILE}"
     fi
 
     COLLECT_INTERVAL=${COLLECT_INTERVAL:-0}
     REPORT_INTERVAL=${REPORT_INTERVAL:-60}
+    DEBUG_MODE=$(normalize_debug_mode "${DEBUG_MODE:-0}")
 
     if [ -n "${RX_CORRECTION}" ] || [ -n "${TX_CORRECTION}" ]; then
         step "应用流量校正..."
@@ -972,6 +1273,7 @@ EOF
     echo -e "    ● 上报间隔    : ${REPORT_INTERVAL}秒"
     printf  '    ● 采样间隔    : %s秒\n' "${COLLECT_INTERVAL}"
     echo -e "    ● 探测类型    : ${PING_TYPE}"
+    echo -e "    ● 调试日志    : ${DEBUG_MODE}"
     [ -n "${RX_CORRECTION}" ] && echo -e "    ● 下行校正    : ${RX_CORRECTION}GB"
     [ -n "${TX_CORRECTION}" ] && echo -e "    ● 上行校正    : ${TX_CORRECTION}GB"
     if [ "${RESET_DAY}" = "0" ]; then
@@ -983,10 +1285,16 @@ EOF
     [ -n "${CU_NODE}" ] && echo -e "    ● CU节点      : ${CU_NODE}"
     [ -n "${CM_NODE}" ] && echo -e "    ● CM节点      : ${CM_NODE}"
     [ -n "${BD_NODE}" ] && echo -e "    ● BD节点      : ${BD_NODE}"
-    echo -e "  管理指令 :"
-    echo -e "    ● 查看实时日志 : journalctl -u ${SERVICE_NAME} -f"
-    echo -e "    ● 查看运行状态 : systemctl status ${SERVICE_NAME}"
-    echo -e "    ● 停止探针服务 : systemctl stop ${SERVICE_NAME}"
+    if [ "$RUNTIME_MODE" = "systemd" ]; then
+        echo -e "  管理指令 :"
+        echo -e "    ● 查看实时日志 : journalctl -u ${SERVICE_NAME} -f"
+        echo -e "    ● 查看运行状态 : systemctl status ${SERVICE_NAME}"
+        echo -e "    ● 停止探针服务 : systemctl stop ${SERVICE_NAME}"
+    else
+        echo -e "  管理指令 :"
+        echo -e "    ● 查看实时日志 : tail -f ${CONTAINER_LOG_FILE}"
+        echo -e "    ● 停止探针服务 : kill \$(cat ${CONTAINER_PID_FILE})"
+    fi
     echo -e "=============================================\n"
 }
 
@@ -995,18 +1303,24 @@ uninstall_probe() {
     echo -e "${YELLOW}[!] 开始执行无残留深度卸载清理方案...${NC}\n"
     check_root
 
+    detect_runtime_mode
+
     step "停用并撤销系统守护进程..."
-    if systemctl is-active --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
-        systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
-    fi
-    if systemctl is-enabled --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
-        systemctl disable "${SERVICE_NAME}.service" 2>/dev/null || true
+    if command -v systemctl >/dev/null 2>&1; then
+        if systemctl is-active --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
+            systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
+        fi
+        if systemctl is-enabled --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
+            systemctl disable "${SERVICE_NAME}.service" 2>/dev/null || true
+        fi
     fi
 
     step "清理服务描述性系统文件..."
     rm -f "${SERVICE_FILE}"
-    systemctl daemon-reload 2>/dev/null || true
-    systemctl reset-failed "${SERVICE_NAME}" 2>/dev/null || true
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload 2>/dev/null || true
+        systemctl reset-failed "${SERVICE_NAME}" 2>/dev/null || true
+    fi
 
     step "销毁探针物理可执行代码文件..."
     rm -f "${SCRIPT_FILE}"
@@ -1017,6 +1331,17 @@ uninstall_probe() {
     step "抹除流量追踪数据..."
     rm -rf /var/lib/${SERVICE_NAME}
     rm -rf "${CONFIG_DIR}"
+
+    step "清理容器模式运行痕迹..."
+    if [ -f "${CONTAINER_PID_FILE}" ]; then
+        local old_pid
+        old_pid=$(cat "${CONTAINER_PID_FILE}" 2>/dev/null || echo "")
+        if [ -n "$old_pid" ] && kill -0 "$old_pid" 2>/dev/null; then
+            kill "$old_pid" 2>/dev/null || true
+        fi
+        rm -f "${CONTAINER_PID_FILE}"
+    fi
+    rm -f "${CONTAINER_LOG_FILE}"
 
     step "根除孤儿或僵尸状态的探测残留进程..."
     if pgrep -f "${SERVICE_NAME}.sh" >/dev/null 2>&1; then

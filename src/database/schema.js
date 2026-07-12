@@ -1,90 +1,117 @@
-import { 
-  getAllServers,
-  getLatestMetricsCache, 
-  setLatestMetricsCache,
-  getMetricsHistoryCache,
-  setMetricsHistoryCache,
-  getCacheDuration
-} from '../utils/cache.js';
-import { saveSiteOptions, debug } from '../utils/settings.js';
-import { addHistoryColumns, ensureHistoryIndex } from './updateDatabase.js';
+import { getAllServers, getLatestMetricsCache, setLatestMetricsCache, getMetricsHistoryCache, setMetricsHistoryCache, getCacheDuration, clearAllCaches } from '../utils/cache.js';
+import { saveSiteOptions, debug, getSettingByKey } from '../utils/settings.js';
+import { ensureServerOptimization, buildHistoryId, getServerHistoryInfo, getHistoryIdRange } from './indexOptimization.js';
+import { addHistoryColumns, ensureHistoryIndex, isHistoryOptimized } from './updateDatabase.js';
 
 let dbInitialized = false;
 
 export async function initDatabase(db) {
   if (dbInitialized) return;
+
+  debug('初始化数据库');
   
   try {
-    await db.prepare(`
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY, 
-        value TEXT
-      )
-    `).run();
+    const SettingTableExists = await db.prepare(`
+      SELECT name FROM sqlite_master WHERE type='table' AND name='settings'
+    `).first();
+    if (!SettingTableExists) {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS settings (
+          key TEXT PRIMARY KEY, 
+          value TEXT
+        )
+      `).run();
+      await saveSiteOptions(db, { servers_optimized: 'true' });
+      await saveSiteOptions(db, { history_id_optimized: 'true' });
+    }
 
-    await db.prepare(`
-      CREATE TABLE IF NOT EXISTS servers (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        server_group TEXT DEFAULT 'Default',
-        price TEXT DEFAULT '',
-        expire_date TEXT DEFAULT '',
-        bandwidth TEXT DEFAULT '',
-        traffic_limit TEXT DEFAULT '',
-        traffic_calc_type TEXT DEFAULT 'total',
-        reset_day INTEGER DEFAULT 1,
-        collect_interval INTEGER DEFAULT 0,
-        report_interval INTEGER DEFAULT 60,
-        ping_mode TEXT DEFAULT 'http',
-        is_hidden TEXT DEFAULT '0',
-        sort_order INTEGER DEFAULT 0
-      )
-    `).run();
+    // 判断servers表是否存在
+    const ServerTableExists = await db.prepare(`
+      SELECT name FROM sqlite_master WHERE type='table' AND name='servers'
+    `).first();
+    if (!ServerTableExists) {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS servers (
+          id TEXT PRIMARY KEY,
+          name TEXT,
+          server_group TEXT DEFAULT 'Default',
+          price TEXT DEFAULT '',
+          expire_date TEXT DEFAULT '',
+          bandwidth TEXT DEFAULT '',
+          traffic_limit TEXT DEFAULT '',
+          traffic_calc_type TEXT DEFAULT 'total',
+          reset_day INTEGER DEFAULT 1,
+          collect_interval INTEGER DEFAULT 0,
+          report_interval INTEGER DEFAULT 60,
+          ping_mode TEXT DEFAULT 'http',
+          custom_ct TEXT DEFAULT '',
+          custom_cu TEXT DEFAULT '',
+          custom_cm TEXT DEFAULT '',
+          custom_bd TEXT DEFAULT '',
+          rx_correction REAL DEFAULT NULL,
+          tx_correction REAL DEFAULT NULL,
+          offline_notify_disabled TEXT DEFAULT '0',
+          is_hidden TEXT DEFAULT '0',
+          sort_order INTEGER DEFAULT 0,
+          history_partition_id INTEGER DEFAULT 0,
+          timestamp INTEGER DEFAULT 0
+        )
+      `).run();
+    } else {
+      debug('检查servers表优化状态');
+      await ensureServerOptimization(db);
+    }
 
-    await db.prepare(`
-      CREATE TABLE IF NOT EXISTS metrics_history (
-        id INTEGER PRIMARY KEY,
-        server_id TEXT NOT NULL,
-        timestamp INTEGER DEFAULT 0,
-        cpu REAL DEFAULT 0,
-        load_avg TEXT DEFAULT '0',
-        net_in_speed REAL DEFAULT 0,
-        net_out_speed REAL DEFAULT 0,
-        net_rx REAL DEFAULT 0,
-        net_tx REAL DEFAULT 0,
-        processes INTEGER DEFAULT 0,
-        tcp_conn INTEGER DEFAULT 0,
-        udp_conn INTEGER DEFAULT 0,
-        ping_ct INTEGER DEFAULT 0,
-        ping_cu INTEGER DEFAULT 0,
-        ping_cm INTEGER DEFAULT 0,
-        ping_bd INTEGER DEFAULT 0,
-        loss_ct INTEGER DEFAULT NULL,
-        loss_cu INTEGER DEFAULT NULL,
-        loss_cm INTEGER DEFAULT NULL,
-        loss_bd INTEGER DEFAULT NULL,
-        ram_total REAL DEFAULT 0,
-        ram_used REAL DEFAULT 0,
-        swap_total REAL DEFAULT 0,
-        swap_used REAL DEFAULT 0,
-        disk_total REAL DEFAULT 0,
-        disk_used REAL DEFAULT 0,
-        cpu_cores INTEGER DEFAULT 0,
-        cpu_info TEXT DEFAULT '',
-        gpu REAL DEFAULT NULL,
-        gpu_info TEXT DEFAULT '',
-        arch TEXT DEFAULT '',
-        os TEXT DEFAULT '',
-        region TEXT DEFAULT '',
-        ip_v4 TEXT DEFAULT '0',
-        ip_v6 TEXT DEFAULT '0',
-        boot_time TEXT DEFAULT '',
-        net_rx_monthly REAL DEFAULT 0,
-        net_tx_monthly REAL DEFAULT 0
-      )
-    `).run();
-
-    await ensureHistoryIndex(db);
+    // 判断metrics_history表是否存在
+    const historyTableExists = await db.prepare(`
+      SELECT name FROM sqlite_master WHERE type='table' AND name='metrics_history'
+    `).first();
+    if (!historyTableExists) {
+      await db.prepare(`
+        CREATE TABLE IF NOT EXISTS metrics_history (
+          id INTEGER PRIMARY KEY,
+          server_id TEXT NOT NULL,
+          timestamp INTEGER DEFAULT 0,
+          cpu REAL DEFAULT 0,
+          load_avg TEXT DEFAULT '0',
+          net_in_speed REAL DEFAULT 0,
+          net_out_speed REAL DEFAULT 0,
+          net_rx REAL DEFAULT 0,
+          net_tx REAL DEFAULT 0,
+          processes INTEGER DEFAULT 0,
+          tcp_conn INTEGER DEFAULT 0,
+          udp_conn INTEGER DEFAULT 0,
+          ping_ct INTEGER DEFAULT 0,
+          ping_cu INTEGER DEFAULT 0,
+          ping_cm INTEGER DEFAULT 0,
+          ping_bd INTEGER DEFAULT 0,
+          loss_ct INTEGER DEFAULT NULL,
+          loss_cu INTEGER DEFAULT NULL,
+          loss_cm INTEGER DEFAULT NULL,
+          loss_bd INTEGER DEFAULT NULL,
+          ram_total REAL DEFAULT 0,
+          ram_used REAL DEFAULT 0,
+          swap_total REAL DEFAULT 0,
+          swap_used REAL DEFAULT 0,
+          disk_total REAL DEFAULT 0,
+          disk_used REAL DEFAULT 0,
+          cpu_cores INTEGER DEFAULT 0,
+          cpu_info TEXT DEFAULT '',
+          gpu REAL DEFAULT NULL,
+          gpu_info TEXT DEFAULT '',
+          arch TEXT DEFAULT '',
+          os TEXT DEFAULT '',
+          region TEXT DEFAULT '',
+          ip_v4 TEXT DEFAULT '0',
+          ip_v6 TEXT DEFAULT '0',
+          boot_time TEXT DEFAULT '',
+          net_rx_monthly REAL DEFAULT 0,
+          net_tx_monthly REAL DEFAULT 0
+        )
+      `).run();
+    }else{
+      await ensureHistoryIndex(db);
+    }
 
     debug('✅ 数据库初始化完成');
     dbInitialized = true;
@@ -93,8 +120,8 @@ export async function initDatabase(db) {
   }
 }
 
-export async function rebuildDatabase(db) {
-  debug('开始执行数据库重建...');
+export async function clearHistory(db) {
+  debug('开始清空历史数据...');
   
   try {
     await db.prepare(`DROP TABLE IF EXISTS metrics_history`).run();
@@ -103,15 +130,13 @@ export async function rebuildDatabase(db) {
     await db.prepare(`DROP TABLE IF EXISTS metrics_history_old`).run();
     debug('✅ 已删除 metrics_history_old 表');
     
-    await db.prepare(`DROP TABLE IF EXISTS servers`).run();
-    debug('✅ 已删除 servers 表');
-    
-    await db.prepare(`DROP TABLE IF EXISTS settings`).run();
-    debug('✅ 已删除 settings 表');
-    
     dbInitialized = false;
     
     await initDatabase(db);
+
+    await saveSiteOptions(db, { history_id_optimized: 'true' });
+
+    await clearAllCaches(db);
     
     debug('✅ 数据库重建完成');
     
@@ -120,7 +145,7 @@ export async function rebuildDatabase(db) {
       message: 'databaseRebuiltSuccess'
     };
   } catch (e) {
-    console.error('❌ 数据库重建失败:', e);
+    console.error('❌ 数据库清理失败:', e);
     return {
       success: false,
       message: 'databaseRebuiltFailed',
@@ -129,7 +154,39 @@ export async function rebuildDatabase(db) {
   }
 }
 
-export async function getMetricsHistory(db, serverId, hours, columns) {
+async function hasHistoryServerTimeIndex(db, tableName) {
+  const index = await db.prepare(`
+    SELECT name
+    FROM sqlite_master
+    WHERE type = 'index'
+      AND tbl_name = ?
+      AND sql IS NOT NULL
+      AND LOWER(sql) LIKE '%server_id%'
+      AND LOWER(sql) LIKE '%timestamp%'
+    LIMIT 1
+  `).bind(tableName).first();
+
+  return !!index;
+}
+
+function buildHistorySourceQuery(tableName, useIdRange, columns) {
+  if (useIdRange) {
+    return `
+      SELECT timestamp, ${columns} FROM ${tableName}
+      WHERE id >= ?
+        AND id <= ?
+    `;
+  }
+
+  return `
+    SELECT timestamp, ${columns} FROM ${tableName}
+    WHERE server_id = ?
+      AND typeof(timestamp) = 'integer'
+      AND timestamp >= ?
+  `;
+}
+
+export async function getMetricsHistory(db, serverId, hours, columns, server = null) {
   const now = Date.now();
   const cacheDuration = getCacheDuration(hours);
   
@@ -139,29 +196,15 @@ export async function getMetricsHistory(db, serverId, hours, columns) {
     return cached.data;
   }
   
-  let queryHours = hours;
-  let intervalMs;
-  
-  if (hours > 168) {
-    queryHours = 168;
-    intervalMs = 80 * 60 * 1000;
-  } else if (hours >= 96) {
-    intervalMs = 60 * 60 * 1000;
-  } else if (hours >= 48) {
-    intervalMs = 40 * 60 * 1000;
-  } else if (hours >= 24) {
-    intervalMs = 15 * 60 * 1000;
-  } else if (hours >= 12) {
-    intervalMs = 10 * 60 * 1000;
-  } else if (hours >= 6) {
-    intervalMs = 5 * 60 * 1000;
-  } else if (hours > 1) {
-    intervalMs = 1 * 60 * 1000;
-  } else {
-    intervalMs = 10 * 1000;
-  }
+  // 最多返回80个数据点,前端需要配合这个计算断点阈值
+  const queryHours = Math.min(hours, 168);
+  const MAX_POINTS = 80;
+  const totalMs = queryHours * 60 * 60 * 1000;
+  const intervalMs = Math.max(10_000, Math.ceil(totalMs / MAX_POINTS));
 
   const cutoff = now - queryHours * 60 * 60 * 1000;
+  const historyInfo = await getServerHistoryInfo(db, serverId, server);
+  const queryStart = Math.max(cutoff, historyInfo.startTimestamp);
 
   debug(
     '[History]',
@@ -169,79 +212,77 @@ export async function getMetricsHistory(db, serverId, hours, columns) {
     'hours:', hours,
     'queryHours:', queryHours,
     'interval:', intervalMs,
-    'cutoff:', new Date(cutoff).toISOString()
+    'cutoff:', new Date(cutoff).toISOString(),
+    'start:', new Date(queryStart).toISOString()
   );
 
   // 判断是否需要查询 metrics_history_old 表
-  // 如果 cutoff 早于本周日 00:00 UTC（表轮换时间），说明需要查旧表
+  // 如果实际查询起点早于本周日 00:00 UTC（表轮换时间），说明需要查旧表
   const nowDate = new Date(now);
   const day = nowDate.getUTCDay();
   const thisSunday = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), nowDate.getUTCDate() - day));
-  const needOldTable = cutoff < thisSunday.getTime();
+  const needOldTable = queryStart < thisSunday.getTime();
   
-  // 检查 metrics_history_old 表是否存在
-  let oldTableExists = false;
-  if (needOldTable) {
-    const oldTable = await db.prepare(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='metrics_history_old'`
-    ).first();
-    oldTableExists = !!oldTable;
+  const oldTableExists = needOldTable && !!await db.prepare(
+    `SELECT name FROM sqlite_master WHERE type='table' AND name='metrics_history_old'`
+  ).first();
+
+  const history_id_optimized = await getSettingByKey(db, 'history_id_optimized', true);
+  const currentHasServerTimeIndex = history_id_optimized
+    ? false
+    : await hasHistoryServerTimeIndex(db, 'metrics_history');
+  const currentUsesIdRange = history_id_optimized || !currentHasServerTimeIndex;
+  const oldUsesIdRange = oldTableExists
+    ? history_id_optimized || !await hasHistoryServerTimeIndex(db, 'metrics_history_old')
+    : false;
+  const needsIdRange = currentUsesIdRange || oldUsesIdRange;
+
+  let idRange = null;
+  if (needsIdRange) {
+    if (!historyInfo.partitionId) {
+      throw new Error('Invalid history partition id');
+    }
+
+    idRange = getHistoryIdRange(historyInfo.partitionId, queryStart);
   }
 
-  let rawResult;
-  
-  if (needOldTable && oldTableExists) {
-    // 跨周查询，使用 UNION ALL 合并两个表
-    debug('[History] 跨周查询，合并 metrics_history 和 metrics_history_old');
+  const sourceQueries = [];
+  const bindValues = [intervalMs];
 
-    rawResult = await db.prepare(`
-      WITH sampled AS (
-        SELECT 
-          timestamp, 
-          ${columns},
-          ROW_NUMBER() OVER (
-            PARTITION BY CAST(timestamp / ? AS INTEGER)
-            ORDER BY timestamp
-          ) AS rn
-        FROM (
-          SELECT timestamp, ${columns} FROM metrics_history
-          WHERE server_id = ?
-            AND typeof(timestamp) = 'integer'
-            AND timestamp >= ?
-          
-          UNION ALL
-          
-          SELECT timestamp, ${columns} FROM metrics_history_old
-          WHERE server_id = ?
-            AND typeof(timestamp) = 'integer'
-            AND timestamp >= ?
-        )
-      )
-      SELECT timestamp, ${columns}
-      FROM sampled
-      WHERE rn = 1
-    `).bind(intervalMs, serverId, cutoff, serverId, cutoff).all();
+  sourceQueries.push(buildHistorySourceQuery('metrics_history', currentUsesIdRange, columns));
+  if (currentUsesIdRange) {
+    bindValues.push(idRange.startId, idRange.endId);
   } else {
-    // 单表查询
-    rawResult = await db.prepare(`
-      WITH sampled AS (
-        SELECT 
-          timestamp, 
-          ${columns},
-          ROW_NUMBER() OVER (
-            PARTITION BY CAST(timestamp / ? AS INTEGER)
-            ORDER BY timestamp
-          ) AS rn
-        FROM metrics_history
-        WHERE server_id = ?
-          AND typeof(timestamp) = 'integer'
-          AND timestamp >= ?
-      )
-      SELECT timestamp, ${columns}
-      FROM sampled
-      WHERE rn = 1
-    `).bind(intervalMs, serverId, cutoff).all();
+    bindValues.push(serverId, queryStart);
   }
+
+  if (oldTableExists) {
+    debug('[History] 跨周查询，合并 metrics_history 和 metrics_history_old');
+    sourceQueries.push(buildHistorySourceQuery('metrics_history_old', oldUsesIdRange, columns));
+    if (oldUsesIdRange) {
+      bindValues.push(idRange.startId, idRange.endId);
+    } else {
+      bindValues.push(serverId, queryStart);
+    }
+  }
+
+  const rawResult = await db.prepare(`
+    WITH sampled AS (
+      SELECT
+        timestamp,
+        ${columns},
+        ROW_NUMBER() OVER (
+          PARTITION BY CAST(timestamp / ? AS INTEGER)
+          ORDER BY timestamp
+        ) AS rn
+      FROM (
+        ${sourceQueries.join('\n        UNION ALL\n')}
+      )
+    )
+    SELECT timestamp, ${columns}
+    FROM sampled
+    WHERE rn = 1
+  `).bind(...bindValues).all();
 
   const result = rawResult.results.map(row => ({
     ...row,
@@ -249,10 +290,10 @@ export async function getMetricsHistory(db, serverId, hours, columns) {
   }));
 
   result.sort((a, b) => a.timestamp - b.timestamp);
-  
+
   setMetricsHistoryCache(serverId, hours, columns, result);
 
-  debug(`[History] FINAL: ${result.length}`);
+  debug(`[History] FINAL: ${result.length}, interval: ${intervalMs}ms`);
 
   return result;
 }
@@ -262,8 +303,16 @@ export async function weeklyCleanup(db) {
   try {
     debug('[Cleanup] 开始执行表轮换操作...');
     
-    await saveSiteOptions(db, { cleanup_skip_count: '1' });
-    debug('cleanup_skip_count set to 1');
+    // 判断metrics_history有无索引
+    const index = await db.prepare(
+      `SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='metrics_history'`
+    ).first();
+    if(!index){
+      await saveSiteOptions(db, { history_id_optimized: 'true' });
+      debug('✅ 切换到优化模式');
+    }else{
+      debug('✅ 继续兼容模式');
+    }
     
     // 1. 删除旧的 metrics_history_old 表（如果存在）
     await db.prepare(`DROP TABLE IF EXISTS metrics_history_old`).run();
@@ -278,7 +327,7 @@ export async function weeklyCleanup(db) {
       await db.prepare(`ALTER TABLE metrics_history RENAME TO metrics_history_old`).run();
       debug('[Cleanup] 已将 metrics_history 重命名为 metrics_history_old');
     }
-    
+  
     // 3. 重新初始化数据库以创建新的 metrics_history 表
     dbInitialized = false;
     await initDatabase(db);
@@ -295,8 +344,9 @@ export async function weeklyCleanup(db) {
   }
 }
 
-export async function saveMetricsHistory(db, serverId, metrics, regionCode = '', timestamp = null) {
+export async function saveMetricsHistory(db, serverId, historyPartitionId, metrics, regionCode = '', timestamp = null) {
   try {
+    const historyId = buildHistoryId(historyPartitionId, timestamp);
     const rawTimestamp = Number(timestamp);
     const now = Number.isFinite(rawTimestamp) && rawTimestamp > 0
       ? (rawTimestamp < 10000000000 ? rawTimestamp * 1000 : rawTimestamp)
@@ -317,7 +367,7 @@ export async function saveMetricsHistory(db, serverId, metrics, regionCode = '',
     
     await db.prepare(`
       INSERT INTO metrics_history (
-        server_id, timestamp, cpu, load_avg,
+        id, server_id, timestamp, cpu, load_avg,
         net_in_speed, net_out_speed, net_rx, net_tx,
         processes, tcp_conn, udp_conn,
         ping_ct, ping_cu, ping_cm, ping_bd,
@@ -327,7 +377,7 @@ export async function saveMetricsHistory(db, serverId, metrics, regionCode = '',
         cpu_cores, cpu_info, gpu, gpu_info, arch, os, region, ip_v4, ip_v6, boot_time,
         net_rx_monthly, net_tx_monthly
       ) VALUES (
-        ?, ?, ?, ?,
+        ?,?, ?, ?, ?,
         ?, ?, ?, ?,
         ?, ?, ?,
         ?, ?, ?, ?,
@@ -338,6 +388,7 @@ export async function saveMetricsHistory(db, serverId, metrics, regionCode = '',
         ?, ?
       )
     `).bind(
+      historyId,
       serverId,
       now,
       parseFloat(metrics.cpu) || 0,
@@ -387,15 +438,32 @@ export async function saveMetricsHistory(db, serverId, metrics, regionCode = '',
   }
 }
 
-export async function getLatestMetrics(db, serverId) {
+export async function getLatestMetrics(db, serverId, server = null) {
   try {
-    const result = await db.prepare(`
-      SELECT * FROM metrics_history 
-      WHERE server_id = ? 
-      ORDER BY timestamp DESC 
+    const historyInfo = await getServerHistoryInfo(db, serverId, server);
+    if (!historyInfo.partitionId) {
+      throw new Error('Invalid history partition id');
+    }
+
+    const useIdFilter = await isHistoryOptimized(db);
+
+    const rangeStart = historyInfo.startTimestamp > 0 ? historyInfo.startTimestamp : null;
+    const { startId, endId } = getHistoryIdRange(historyInfo.partitionId, rangeStart);
+    debug(`Server ${serverId} history_id_range: ${startId} - ${endId}`);
+  
+    const result = useIdFilter ? await db.prepare(`
+      SELECT * FROM metrics_history
+      WHERE id >= ?
+        AND id <= ?
+      ORDER BY id DESC
+      LIMIT 1
+    `).bind(startId, endId).first()
+    :await db.prepare(`
+      SELECT * FROM metrics_history
+      WHERE server_id = ?
+      ORDER BY timestamp DESC
       LIMIT 1
     `).bind(serverId).first();
-    
     return result || null;
   } catch (e) {
     console.error('获取最新指标数据失败:', e);
@@ -418,7 +486,7 @@ export async function getLatestMetricsForAllServers(db) {
 
     const entries = await Promise.all(
       servers.map(s =>
-        getLatestMetrics(db, s.id).then(metrics => [s.id, metrics])
+        getLatestMetrics(db, s.id, s).then(metrics => [s.id, metrics])
       )
     );
 

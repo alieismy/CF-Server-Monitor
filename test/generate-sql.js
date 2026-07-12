@@ -41,10 +41,10 @@ function generateMetrics(baseTimestamp, serverIdx, hourOffset) {
     net_rx_monthly: Math.floor(Math.random() * 1000000000 + 500000000).toString(),
     net_tx_monthly: Math.floor(Math.random() * 500000000 + 250000000).toString(),
     net_in_speed: Math.floor(Math.random() * 10000000 + 20).toString(),
-    net_out_speed: Math.floor(Math.random() * 20000000 + 10).toString(),
+    net_out_speed: Math.floor(Math.random() * 10).toString(),
     processes: (100 + Math.floor(Math.random() * 50)).toString(),
-    tcp_conn: (50 + Math.floor(Math.random() * 100)).toString(),
-    udp_conn: (10 + Math.floor(Math.random() * 30)).toString(),
+    tcp_conn: (Math.floor(Math.random() * 100)).toString(),
+    udp_conn: (Math.floor(Math.random() * 3)).toString(),
     ping_ct: Math.round(Math.max(10, baseline.ping * 1.2 + pingNoise)).toString(),
     ping_cu: Math.round(Math.max(10, baseline.ping + pingNoise)).toString(),
     ping_cm: Math.round(Math.max(10, baseline.ping * 1.1 + pingNoise)).toString(),
@@ -97,10 +97,77 @@ let sql = `-- CF Server Monitor 模拟数据
 -- 生成时间: ${new Date().toISOString()}
 
 -- 清空现有数据（注意顺序：先删子表，再删主表）
-DELETE FROM metrics_history;
+DROP TABLE IF EXISTS metrics_history;
 DROP TABLE IF EXISTS metrics_history_old;
-DELETE FROM servers;
-DELETE FROM settings;
+DROP TABLE IF EXISTS servers;
+DROP TABLE IF EXISTS settings;
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY, 
+  value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS servers (
+  id TEXT PRIMARY KEY,
+  name TEXT,
+  server_group TEXT DEFAULT 'Default',
+  price TEXT DEFAULT '',
+  expire_date TEXT DEFAULT '',
+  bandwidth TEXT DEFAULT '',
+  traffic_limit TEXT DEFAULT '',
+  traffic_calc_type TEXT DEFAULT 'total',
+  reset_day INTEGER DEFAULT 1,
+  collect_interval INTEGER DEFAULT 0,
+  report_interval INTEGER DEFAULT 60,
+  ping_mode TEXT DEFAULT 'http',
+  is_hidden TEXT DEFAULT '0',
+  sort_order INTEGER DEFAULT 0
+);
+
+-- 这里模拟不插入history_partition_id和timestamp
+
+CREATE TABLE IF NOT EXISTS metrics_history (
+  id INTEGER PRIMARY KEY,
+  server_id TEXT NOT NULL,
+  timestamp INTEGER DEFAULT 0,
+  cpu REAL DEFAULT 0,
+  load_avg TEXT DEFAULT '0',
+  net_in_speed REAL DEFAULT 0,
+  net_out_speed REAL DEFAULT 0,
+  net_rx REAL DEFAULT 0,
+  net_tx REAL DEFAULT 0,
+  processes INTEGER DEFAULT 0,
+  tcp_conn INTEGER DEFAULT 0,
+  udp_conn INTEGER DEFAULT 0,
+  ping_ct INTEGER DEFAULT 0,
+  ping_cu INTEGER DEFAULT 0,
+  ping_cm INTEGER DEFAULT 0,
+  ping_bd INTEGER DEFAULT 0,
+  loss_ct INTEGER DEFAULT NULL,
+  loss_cu INTEGER DEFAULT NULL,
+  loss_cm INTEGER DEFAULT NULL,
+  loss_bd INTEGER DEFAULT NULL,
+  ram_total REAL DEFAULT 0,
+  ram_used REAL DEFAULT 0,
+  swap_total REAL DEFAULT 0,
+  swap_used REAL DEFAULT 0,
+  disk_total REAL DEFAULT 0,
+  disk_used REAL DEFAULT 0,
+  cpu_cores INTEGER DEFAULT 0,
+  cpu_info TEXT DEFAULT '',
+  gpu REAL DEFAULT NULL,
+  gpu_info TEXT DEFAULT '',
+  arch TEXT DEFAULT '',
+  os TEXT DEFAULT '',
+  region TEXT DEFAULT '',
+  ip_v4 TEXT DEFAULT '0',
+  ip_v6 TEXT DEFAULT '0',
+  boot_time TEXT DEFAULT '',
+  net_rx_monthly REAL DEFAULT 0,
+  net_tx_monthly REAL DEFAULT 0,
+  FOREIGN KEY (server_id) REFERENCES servers(id)
+);
+-- 模拟外键
 
 -- 插入系统配置
 `;
@@ -113,12 +180,14 @@ const appearanceOptions = {
 };
 
 const siteOptions = {
+  username: 'admin',
   is_public: 'true',
   show_price: 'true',
   show_expire: 'true',
   show_bw: 'true',
   show_tf: 'true',
   show_time: 'true',
+  show_long_history: 'true',
   tg_notify: 'false',
   tg_bot_token: '',
   tg_chat_id: '',

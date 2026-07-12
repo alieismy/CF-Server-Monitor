@@ -273,9 +273,9 @@
         <div class="modal-body-content">
           <p class="modal-body-text">{{ trans.loginRequired }}</p>
         </div>
-        <div class="modal-footer">
-          <button @click="showLoginModal = false" class="btn modal-btn-full">{{ trans.cancel }}</button>
-          <button @click="goToLogin" class="btn btn-blue modal-btn-full">{{ trans.login }}</button>
+        <div class="modal-footer flex-justify-between">
+          <button @click="goToLogin" class="btn btn-primary">{{ trans.login }}</button>
+          <button @click="showLoginModal = false" class="btn">{{ trans.cancel }}</button>
         </div>
       </div>
     </div>
@@ -292,7 +292,7 @@ import { hasMultipleApiBases } from '../utils/config.js'
 import Chart from 'chart.js/auto'
 import 'chartjs-adapter-date-fns'
 import { t, currentLang, useTranslation } from '../utils/i18n'
-import { CHART, HISTORY_SAMPLE_INTERVAL } from '../utils/constants'
+import { CHART } from '../utils/constants'
 import { formatDateTime } from '../utils/time.js'
 import useTheme from '../composables/useTheme'
 
@@ -642,20 +642,21 @@ const updateChartsTheme = (theme) => {
   })
 }
 
+// ≤1h: gap超过5分钟断线; >1h: 总时长/80，最低5分钟基础阈值
 const getHistoryGapBreakMs = (hours = currentHours.value) => {
-  if (hours > 168) return HISTORY_SAMPLE_INTERVAL.OVER_168_HOURS
-  if (hours >= 96) return HISTORY_SAMPLE_INTERVAL.FROM_96_HOURS
-  if (hours >= 48) return HISTORY_SAMPLE_INTERVAL.FROM_48_HOURS
-  if (hours >= 24) return HISTORY_SAMPLE_INTERVAL.FROM_24_HOURS
-  if (hours >= 12) return HISTORY_SAMPLE_INTERVAL.FROM_12_HOURS
-  return HISTORY_SAMPLE_INTERVAL.BELOW_12_HOURS
+  if (hours <= 1) return 5 * 60 * 1000
+  return Math.max(5 * 60 * 1000, Math.ceil(hours * 60 * 60 * 1000 / 80))
 }
 
 const shouldBreakGap = (prevPoint, nextPoint) => {
   if (!prevPoint || !nextPoint) return false
   const prevTime = Number(prevPoint.x)
   const nextTime = Number(nextPoint.x)
-  return Number.isFinite(prevTime) && Number.isFinite(nextTime) && nextTime - prevTime > getHistoryGapBreakMs()
+  if (!Number.isFinite(prevTime) || !Number.isFinite(nextTime)) return false
+  const gap = nextTime - prevTime
+  const breakThreshold = getHistoryGapBreakMs()
+  if (currentHours.value <= 1) return gap > breakThreshold
+  return gap > breakThreshold * 1.1
 }
 
 const applyGapBreak = (data) => {
@@ -779,8 +780,7 @@ const updateLoadChart = (chart, dataPoints) => {
 
 const loadAllHistory = async (hours) => {
   try {
-    const res = await fetchAllHistory(serverId, hours, apiIndex.value)
-    const allData = Array.isArray(res) ? res : []
+    const allData = await fetchAllHistory(serverId, hours, apiIndex.value)
 
     if (allData.length > 0) {
       hasLossHistoryData.value = allData.some(item => ['loss_ct', 'loss_cu', 'loss_cm', 'loss_bd'].some(key => isLossValid(item[key])))
@@ -791,10 +791,10 @@ const loadAllHistory = async (hours) => {
       updateChartDataset(charts.ram, 1, allData, percentAccessor('swap_used', 'swap_total'))
       updateChartDataset(charts.disk, 0, allData, percentAccessor('disk_used', 'disk_total'))
       updateChartDataset(charts.proc, 0, allData, fieldAccessor('processes'))
-      updateChartDataset(charts.net, 0, allData, fieldAccessor('net_in_speed'))
-      updateChartDataset(charts.net, 1, allData, fieldAccessor('net_out_speed'))
-      updateChartDataset(charts.conn, 0, allData, fieldAccessor('tcp_conn'))
-      updateChartDataset(charts.conn, 1, allData, fieldAccessor('udp_conn'))
+      updateChartDataset(charts.net, 0, allData, fieldAccessor('net_in_speed', true))
+      updateChartDataset(charts.net, 1, allData, fieldAccessor('net_out_speed', true))
+      updateChartDataset(charts.conn, 0, allData, fieldAccessor('tcp_conn', true))
+      updateChartDataset(charts.conn, 1, allData, fieldAccessor('udp_conn', true))
       updateChartDataset(charts.ping, 0, allData, fieldAccessor('ping_ct', true))
       updateChartDataset(charts.ping, 1, allData, fieldAccessor('ping_cu', true))
       updateChartDataset(charts.ping, 2, allData, fieldAccessor('ping_cm', true))

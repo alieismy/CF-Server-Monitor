@@ -1,4 +1,14 @@
 待办事项：
+- [ ] 服务器单独设置离线告警开关
+- [x] 合并getAllServers函数
+- [x] 上报后，插入新的history_partition_id字段
+- [x] 保证metrics_history表是优化状态
+- [x] settings新增history_id_optimized字段，如果已优化，自动改成true，其他全局调用判断是否优化，走缓存和清除缓存
+- [x] 离线通知等检查走新的主键查询
+- [x] getNextServerHistoryPartitionId函数，从缓存获取servers表
+- [x] 保证servers表是优化状态
+- [x] 新增server的时候，添加history_partition_id字段
+- [x] settings新增servers_optimized字段，如果是false，执行
 - [x] 多站点模式，载入一个显示一个，未完整载入的时候，底部显示载入中
 - [x] 多站点模式，跨域弹出提醒
 - [x] windows上报脚本ping和丢包，以及删除旧进程问题

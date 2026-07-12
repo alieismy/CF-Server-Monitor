@@ -1,41 +1,20 @@
 # [CF-Server-Monitor](https://github.com/huilang-me/CF-Server-Monitor)
 
-一个基于 Cloudflare Workers + D1 + Durable Objects 的多服务器监控探针系统，支持实时监控、历史数据查看、延迟追踪、地图展示等功能。兼容主流Linux系统，Alpine Linux，OpenWrt，Windows系统。**演示地址**：<https://demo.huilang.me/>
+一个基于 Cloudflare Workers + D1 + Durable Objects 的多服务器监控探针系统，支持实时监控、历史数据查看、延迟追踪、地图展示等功能。兼容主流Linux系统，Alpine Linux，OpenWrt，Windows系统。
 
-**当前版本：V2.7.8**
+**演示地址**：<https://demo.huilang.me/>
 
-> [!IMPORTANT]
-> **🚨 紧急安全/性能更新 (v2.7.8)**
-> 
-> 本次版本修复了 **月度任务导致数据表索引丢失** 的严重 Bug。该问题影响 **v2.7.0 ~ v2.7.7** 所有版本。
-> 
-> ⚠️ **潜在影响**：此 Bug 会严重增加 D1 读行消耗，**可能导致免费额度超限，造成服务不可用**。
-> 
-> **👉 请所有用户务必立即升级！**
+**当前版本：V2.7.9**
 
-<2.7.1 新增了功能，需要**升级安装脚本** 才能生效，否则无法获取丢包率
-```
-# Linux
-curl -sL https://你的项目.你的子域.workers.dev/install.sh | bash -s install
-# Alpine
-curl -sL https://你的项目.你的子域.workers.dev/install-alpine.sh | sh -s install
-# OpenWrt
-curl -sL https://你的项目.你的子域.workers.dev/install-openwrt.sh | sh -s install
-```
-<= 2.6.9 版本,使用方式一部署方式，需要在Workers & Pages页面，点击 **Settings**，修改Build configuration的Deploy command为：`npx wrangler deploy --keep-vars`，否则会导致API\_SECRET丢失。旧key可用通过
-```
-# Linux
-cat /etc/systemd/system/cf-probe.service
-# OpenWrt,Alpine
-cat /etc/init.d/cf-probe
-# >2.6.9版本
-cat /etc/config/cf-probe/config.conf
-```
-获取，再重新设置环境变量API\_SECRET（注意是设置顶部的变量和密钥），最后再同步数据。
+> [!NOTE]
+> 升级到 V2.7.9 后请重新安装一次探针，之后在后台修改服务器参数会自动下发，无需每次重新安装探针，最长约 240 秒生效。
+>
+>不升级将无法使用服务器参数下发功能。
 
 <details>
 <summary>更新记录</summary>
 
+- V2.7.9 修改数据库结构，减少一半D1写入消耗，理论上支持60+服务器监控，在保证安全的基础上，增加服务器参数下发功能。
 - V2.7.8 修复月度任务导致数据表索引丢失的严重 Bug
 - V2.7.7 添加GitHub Page部署支持，添加飞书，Bark通知支持
 - V2.7.6 添加多站点支持包括验证码登录等，添加Windows PowerShell无依赖安装脚本，一些安全优化
@@ -222,7 +201,7 @@ git push origin main
 部署成功后，访问管理后台：
 
 ```
-https://你的项目名.你的子域.workers.dev/#admin
+https://你的项目名.你的子域.workers.dev/#/admin
 ```
 
 - 用户名：默认admin，如果设置了环境变量 `API_USER_NAME`，则使用该值
@@ -380,6 +359,9 @@ curl -sL https://你的项目.你的子域.workers.dev/install-alpine.sh | sh -s
 # OpenWrt
 curl -sL https://你的项目.你的子域.workers.dev/install-openwrt.sh | sh -s install
 ```
+
+> **V2.7.9 说明**：升级到 V2.7.9 后，请重新安装一次探针以启用参数下发能力。之后在后台修改服务器参数会自动下发到探针，无需每次重新安装；受上报间隔和缓存影响，最长约 240 秒才能看到效果。
+
 为了安全，没有提供自动升级功能，如有需要自行将升级脚本加入服务器定时任务。
 
 比如 crontab -e 中添加以下内容，每天凌晨 0 点执行升级：
@@ -452,6 +434,69 @@ Windows 系统（Python 版）
 </details>
 
 <details>
+<summary>通知设置</summary>
+
+## 🔔 通知设置
+
+在管理后台 → 全局设置 → 通知 中配置。支持以下通知方式，通过 Bot Token 字段自动识别平台类型：
+
+### Telegram
+
+1. 创建 Telegram Bot（通过 [@BotFather](https://t.me/BotFather)）
+2. 获取 Bot Token，填入 **Bot Token** 字段
+3. （通过 [@idbot](https://t.me/idbot)）获取 ID，填入 **Chat ID** 字段
+
+### 飞书
+
+1. 创建飞书群机器人，获取 Webhook URL
+2. 将 Webhook URL 填入 **Bot Token** 字段
+3. **Chat ID** 留空
+
+### 企业微信
+
+1. [创建企业微信群机器人](https://open.work.weixin.qq.com/help2/pc/14931) 并配置，获取 Webhook URL
+2. 将 Webhook URL 填入 **Bot Token** 字段
+3. **Chat ID** 留空
+
+### Bark
+
+1. 获取 Bark 推送链接，比如 `https://api.day.app/xxxxxxx/自定义内容`，删掉中文，保留 `https://api.day.app/xxxxxxx/`
+2. 将链接填入 **Bot Token** 字段
+3. **Chat ID** 留空
+
+### Server 酱
+
+1. 注册 [Server 酱](https://sct.ftqq.com/) 获取 SendKey
+2. 将 SendKey 填入 **Bot Token** 字段，格式为 `https://sctapi.ftqq.com/你的SendKey.send`
+3. **Chat ID** 留空
+
+### WxPusher
+
+1. 注册 [WxPusher](https://wxpusher.zjiecode.com/) 获取 SPT Token
+2. 将 SPT Token 填入 **Bot Token** 字段，格式为 `https://wxpusher.zjiecode.com/api/send/message/[SPT_你的Token]/Hello%20WxPusher`
+3. **Chat ID** 留空
+
+### Gotify
+
+1. 部署或使用已有的 [Gotify](https://gotify.net/) 服务
+2. 在 Gotify 中创建 Application，获取 Token
+3. 将推送 URL 填入 **Bot Token** 字段，格式为 `https://你的Gotify地址/message?token=你的Token`
+4. **Chat ID** 留空
+
+### 告警类型
+
+| 类型 | 说明 |
+| --- | --- |
+| 离线告警 | 节点离线 5 分钟后发送告警，恢复后发送恢复通知 |
+| 到期提醒 | 服务器到期前 7 天内每天发送提醒 |
+
+### 测试通知
+
+配置完成后，可点击 **发送测试通知** 按钮验证配置是否正确。测试成功后记得点击 **保存**。
+
+</details>
+
+<details>
 <summary>其他设置</summary>
 
 ### 前台大盘
@@ -503,9 +548,9 @@ Windows 系统（Python 版）
    - 点击「Upgrade Database」按钮
    - 确认升级操作
    - 系统会自动执行数据库升级脚本
-2. **重建数据库**：清空并重建整个数据库（⚠️ 危险操作）
-   - 点击「Rebuild Database」按钮
-   - 确认重建操作（此操作将删除所有数据）
+2. **清空历史数据**：清空所有历史数据（⚠️ 危险操作）
+   - 点击「清空历史数据」按钮
+   - 确认操作（此操作将删除所有历史数据）
    - 系统会清空并重新初始化数据库
 
 > **注意**：
@@ -513,31 +558,6 @@ Windows 系统（Python 版）
 > - 重建数据库是不可逆操作，请确保已备份重要数据
 > - 升级数据库不会删除现有数据，仅会更新表结构
 > - 从旧版本升级到包含 GPU/丢包率监控的新版本后，需要先执行升级数据库，再重新安装或升级探针以采集新字段
-
-## 🔔 离线告警配置
-
-在管理后台 → 全局设置中配置：
-
-**Telegram 告警：**
-
-1. 创建 Telegram Bot（通过 [@BotFather](https://t.me/BotFather)）
-2. 获取 Bot Token
-3. 获取 Chat ID（通过 [@idbot](https://t.me/idbot)）
-4. 填入后台设置并开启
-
-**企业微信 / 飞书 告警：**
-
-1. 创建群机器人，获取 Webhook URL
-2. 填入 Bot Token 字段
-3. Chat ID 留空
-
-**Bark 告警：**
-
-1. 获取 Bark 推送链接，比如 `https://api.day.app/xxxxxxx/这里改成你自己的推送内容` 删掉中文，保留 `https://api.day.app/xxxxxxx/`
-2. 填入 Bot Token 字段
-3. Chat ID 留空
-
-
 
 </details>
 
@@ -641,7 +661,7 @@ CF-Server-Monitor/
 
 **Q: 探针安装后不显示数据？**
 
-检查服务器是否能访问 Worker URL，查看探针日志：`journalctl -u cf-probe -f`
+检查服务器是否能访问 Worker URL，在安装命令参数后面加入` -debug=1`（目前仅支持linux系统），再查看探针日志：`journalctl -u cf-probe -f`，将错误信息发到Issue或者TG群，调试结束后删掉debug=1参数重新安装，避免日志过大。
 
 **Q: 如何更换 API\_SECRET？**
 
@@ -651,7 +671,7 @@ CF-Server-Monitor/
 
 Cloudflare D1 免费版提供 5GB 存储和 5M 读取行/日、100K 写入行/日，足以支持服务器监控。
 
-写入行：1台服务器一天占用写入行是2.88k，免费写入额度是100k/天，理论上可用支持34台服务器的监控，如果修改上报频率为120秒可用翻倍。
+写入行：1台服务器一天占用写入行是1.44k，免费写入额度是100k/天，理论上可用支持60+服务器的监控，如果修改上报频率为120秒可用翻倍。
 
 读取行：1台服务器一天占用读行是8k左右，如果开启站点兼容，大概是1.6k，免费读行是5M/天，非常充裕
 主要是前端访问消耗的次数，限制了非登录用户1小时以上的查看，只要不被暴力刷额度，绝对够用，如果不放心，可用在后台开启Turnstile人机验证，或者也可以选择仅登录查看
@@ -797,11 +817,11 @@ node test/api-check.js --help
 
 MIT License
 
-## � 社区
+## 🌐 社区
 
 - [Telegram 群组](https://t.me/cfServerMonitor)
 
-## �🙏 致谢
+## 🙏 致谢
 
 - [CF-Server-Monitor-Pro](https://github.com/a63414262/CF-Server-Monitor-Pro)
 - [Cloudflare Workers](https://workers.cloudflare.com/)
@@ -809,5 +829,4 @@ MIT License
 - [Vite](https://vitejs.dev/)
 - [Chart.js](https://www.chartjs.org/)
 - [Leaflet](https://leafletjs.com/)
-- 感谢 [LINUX DO](https://linux.do/) [NodeSeek](https://www.nodeseek.com/post-763025-1) 社区的支持与推广
-
+- 感谢 [NodeSeek](https://www.nodeseek.com/post-763025-1)  [LINUX DO](https://linux.do/) 社区的支持与推广
