@@ -73,9 +73,10 @@ const servers = [
     id: '550e8400-e29b-41d4-a716-446655440001',
     name: 'US-East-Fast',
     server_group: 'Production',
+    tags: 'production,us-east,edge',
+    note: 'Primary production node',
     price: '$15/mo',
     expire_date: '2026-12-31',
-    bandwidth: '1Gbps',
     traffic_limit: '2TB',
     is_hidden: '0',
     sort_order: 0
@@ -84,9 +85,10 @@ const servers = [
     id: '550e8400-e29b-41d4-a716-446655440002',
     name: 'JP-Tokyo-Stable',
     server_group: 'Production',
+    tags: 'production,jp-tokyo',
+    note: 'Hidden standby node',
     price: '$10/mo',
     expire_date: '2026-06-30',
-    bandwidth: '500Mbps',
     traffic_limit: '1TB',
     is_hidden: '1',
     sort_order: 1
@@ -111,9 +113,10 @@ CREATE TABLE IF NOT EXISTS servers (
   id TEXT PRIMARY KEY,
   name TEXT,
   server_group TEXT DEFAULT 'Default',
+  tags TEXT DEFAULT '',
+  note TEXT DEFAULT '',
   price TEXT DEFAULT '',
   expire_date TEXT DEFAULT '',
-  bandwidth TEXT DEFAULT '',
   traffic_limit TEXT DEFAULT '',
   traffic_calc_type TEXT DEFAULT 'total',
   reset_day INTEGER DEFAULT 1,
@@ -184,7 +187,6 @@ const siteOptions = {
   is_public: 'true',
   show_price: 'true',
   show_expire: 'true',
-  show_bw: 'true',
   show_tf: 'true',
   show_time: 'true',
   show_long_history: 'true',
@@ -203,10 +205,10 @@ const serverLatestMetrics = {};
 
 for (const server of servers) {
   sql += `INSERT INTO servers (
-    id, name, server_group, price, expire_date, bandwidth, traffic_limit, is_hidden, sort_order
+    id, name, server_group, tags, note, price, expire_date, traffic_limit, is_hidden, sort_order
   ) VALUES (
-    '${server.id}', '${server.name}', '${server.server_group}', '${server.price}', 
-    '${server.expire_date}', '${server.bandwidth}', '${server.traffic_limit}', 
+    '${server.id}', '${server.name}', '${server.server_group}', '${server.tags}', '${server.note}', '${server.price}',
+    '${server.expire_date}', '${server.traffic_limit}',
     '${server.is_hidden}', ${server.sort_order}
   );\n`;
 }

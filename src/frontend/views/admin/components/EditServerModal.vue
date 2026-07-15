@@ -1,0 +1,176 @@
+<template>
+  <div id="editModal" class="modal-overlay" :class="{ active: show }">
+    <div class="modal-dialog">
+      <div class="modal-header">
+        <div class="modal-title">{{ currentServerName }}</div>
+        <button class="modal-close" @click="$emit('close')">✕</button>
+      </div>
+      <input type="hidden" v-model="editForm.id">
+
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.hostnameLabel }} <span class="required">*</span></label>
+          <input type="text" name="edit_name" autocomplete="off" v-model="editForm.name" class="form-input" placeholder="e.g. My Server">
+        </div>
+
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.groupName }}</label>
+          <input type="text" name="edit_server_group" autocomplete="off" v-model="editForm.server_group" class="form-input" placeholder="e.g. US VPS">
+        </div>
+
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.tags }}</label>
+          <input type="text" name="edit_tags" autocomplete="off" v-model="editForm.tags" class="form-input" :placeholder="trans.tagsPlaceholder">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">{{ trans.note }}</label>
+        <textarea name="edit_note" autocomplete="off" v-model="editForm.note" class="form-textarea" rows="2" :placeholder="trans.notePlaceholder"></textarea>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.price }}</label>
+          <input type="text" name="edit_price" autocomplete="off" v-model="editForm.price" class="form-input" placeholder="e.g. $40/Y">
+        </div>
+
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.expirationDate }}</label>
+          <input type="date" name="edit_expire_date" autocomplete="off" v-model="editForm.expire_date" class="form-input">
+        </div>
+      </div>
+
+
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.trafficLimit }} (GB)</label>
+          <input type="number" name="edit_traffic_limit" autocomplete="off" v-model="editForm.traffic_limit" class="form-input" placeholder="e.g. 1000" min="0" step="1">
+        </div>
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.trafficCalcType }}</label>
+          <select v-model="editForm.traffic_calc_type" class="form-select">
+            <option value="total">{{ trans.trafficCalcTotal }}</option>
+            <option value="ul">{{ trans.trafficCalcUl }}</option>
+            <option value="dl">{{ trans.trafficCalcDl }}</option>
+          </select>
+        </div>
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.trafficResetDay }}</label>
+          <select ref="editResetDayRef" name="edit_reset_day" v-model="editForm.reset_day" class="form-select">
+            <option :value="0">0</option>
+            <option v-for="day in 31" :key="day" :value="day">{{ day }}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.collectInterval }}</label>
+          <select v-model="editForm.collect_interval" class="form-select">
+            <option :value="0">0</option>
+            <option :value="1">1</option>
+            <option :value="2">2</option>
+            <option :value="5">5</option>
+            <option :value="10">10</option>
+          </select>
+        </div>
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.reportInterval }}</label>
+          <select v-model="editForm.report_interval" class="form-select">
+            <option :value="30">30</option>
+            <option :value="60">60</option>
+            <option :value="120">120</option>
+            <option :value="180">180</option>
+          </select>
+        </div>
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.pingMode }}</label>
+          <select v-model="editForm.ping_mode" class="form-select">
+            <option value="http">HTTP</option>
+            <option value="tcp">TCP</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="text-muted text-sm mb-3">
+        <span class="warning-icon">[i]</span> {{ trans.collectIntervalHint }}<br>
+        <span class="warning-icon">[i]</span> {{ trans.trafficResetDayTip }}
+      </div>
+
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.customCt }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+          <input type="text" name="edit_custom_ct" autocomplete="off" v-model="editForm.custom_ct" class="form-input" :placeholder="settings.custom_ct || 'gd-ct-dualstack.ip.zstaticcdn.com'">
+        </div>
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.customCu }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+          <input type="text" name="edit_custom_cu" autocomplete="off" v-model="editForm.custom_cu" class="form-input" :placeholder="settings.custom_cu || 'gd-cu-dualstack.ip.zstaticcdn.com'">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.customCm }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+          <input type="text" name="edit_custom_cm" autocomplete="off" v-model="editForm.custom_cm" class="form-input" :placeholder="settings.custom_cm || 'gd-cm-dualstack.ip.zstaticcdn.com'">
+        </div>
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.customBd }} <span class="text-xs text-muted">({{ trans.serverLevel }})</span></label>
+          <input type="text" name="edit_custom_bd" autocomplete="off" v-model="editForm.custom_bd" class="form-input" :placeholder="settings.custom_bd || 'lf3-ips.zstaticcdn.com'">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.rxCorrection }} (GB)</label>
+          <input type="number" name="edit_rx_correction" autocomplete="off" v-model="editForm.rx_correction" class="form-input" placeholder="0" min="0" step="0.1">
+        </div>
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.txCorrection }} (GB)</label>
+          <input type="number" name="edit_tx_correction" autocomplete="off" v-model="editForm.tx_correction" class="form-input" placeholder="0" min="0" step="0.1">
+        </div>
+      </div>
+      <div class="text-muted text-sm mb-3">
+        <span class="warning-icon">[i]</span> {{ trans.correctionHint }}
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <div class="checkbox-item no-margin">
+            <input type="checkbox" v-model="editForm.is_hidden">
+            <label>
+              <b>{{ trans.hideFromPublic }}</b><br>
+              <span class="text-xs text-muted">{{ trans.hideDesc }}</span>
+            </label>
+          </div>
+        </div>
+
+        <div v-if="settings.tg_notify === 'true' && settings.tg_bot_token" class="form-group">
+          <div class="checkbox-item no-margin">
+            <input type="checkbox" v-model="editForm.offline_notify_disabled">
+            <label>
+              <b>{{ trans.disableOfflineNotify }}</b><br>
+              <span class="text-xs text-muted">{{ trans.disableOfflineNotifyDesc }}</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-footer flex-justify-between">
+        <button @click="$emit('save')" class="btn btn-primary">{{ trans.save }}</button>
+        <button @click="$emit('close')" class="btn">{{ trans.cancel }}</button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+const editForm = defineModel('editForm', { type: Object, required: true })
+
+defineProps({
+  trans: { type: Object, required: true },
+  show: { type: Boolean, default: false },
+  currentServerName: { type: String, default: '' },
+  settings: { type: Object, required: true }
+})
+
+defineEmits(['save', 'close'])
+</script>

@@ -1164,31 +1164,59 @@ function Start-TimerCollectLoop {
                         $remoteConfig = ConvertFrom-AgentConfigResponse `
                             -Body $responseBody `
                             -ConfigMd5 ([string]$response.Headers['X-Agent-Config-Md5'])
-                        foreach ($entry in $remoteConfig.GetEnumerator()) {
-                            if ($config -is [hashtable]) {
-                                $config[$entry.Key] = $entry.Value
-                            } else {
-                                $config | Add-Member -NotePropertyName $entry.Key -NotePropertyValue $entry.Value -Force
+
+                        $configChanged = $remoteConfig.config_md5 -ne $script:cs_configMd5
+                        $configApplied = $true
+                        if ($configChanged) {
+                            foreach ($entry in $remoteConfig.GetEnumerator()) {
+                                if ($config -is [hashtable]) {
+                                    $config[$entry.Key] = $entry.Value
+                                } else {
+                                    $config | Add-Member -NotePropertyName $entry.Key -NotePropertyValue $entry.Value -Force
+                                }
+                            }
+                            $configApplied = Save-Config -Config $config
+                            if ($configApplied) {
+                                $effectiveRemoteReportInterval = [math]::Max($remoteConfig.report_interval, 60)
+                                $script:cs_reportInterval = $effectiveRemoteReportInterval
+                                $script:cs_pingType = $remoteConfig.ping_type
+                                $script:cs_resetDay = $remoteConfig.reset_day
+                                $script:cs_configMd5 = $remoteConfig.config_md5
+                                if ($remoteConfig.ContainsKey('ct_node')) { $script:cs_ctNode = $remoteConfig.ct_node }
+                                if ($remoteConfig.ContainsKey('cu_node')) { $script:cs_cuNode = $remoteConfig.cu_node }
+                                if ($remoteConfig.ContainsKey('cm_node')) { $script:cs_cmNode = $remoteConfig.cm_node }
+                                if ($remoteConfig.ContainsKey('bd_node')) { $script:cs_bdNode = $remoteConfig.bd_node }
+                                $timer.Interval = $effectiveRemoteReportInterval * 1000
+                                Write-Log "动态配置已应用: md5=$($remoteConfig.config_md5) report_interval=$($remoteConfig.report_interval)s ct=$($remoteConfig.ct_node) cu=$($remoteConfig.cu_node) cm=$($remoteConfig.cm_node) bd=$($remoteConfig.bd_node)" "INFO"
+
+                                $script:cs_lastPingCheck = 0
+                                $script:cs_pingCt = ""
+                                $script:cs_pingCu = ""
+                                $script:cs_pingCm = ""
+                                $script:cs_pingBd = ""
+                                $script:cs_lossCt = ""
+                                $script:cs_lossCu = ""
+                                $script:cs_lossCm = ""
+                                $script:cs_lossBd = ""
+                                Remove-Item -LiteralPath $pingTempFile -Force -ErrorAction SilentlyContinue
+
+                                $existingPingJob = Get-Job -Name "CFProbePingJob" -ErrorAction SilentlyContinue
+                                if ($existingPingJob) {
+                                    Stop-Job -Name "CFProbePingJob" -ErrorAction SilentlyContinue | Out-Null
+                                    Remove-Job -Name "CFProbePingJob" -Force -ErrorAction SilentlyContinue | Out-Null
+                                }
+                                $newCtNode = if ($remoteConfig.ContainsKey('ct_node')) { $remoteConfig.ct_node } else { $config.ct_node }
+                                $newCuNode = if ($remoteConfig.ContainsKey('cu_node')) { $remoteConfig.cu_node } else { $config.cu_node }
+                                $newCmNode = if ($remoteConfig.ContainsKey('cm_node')) { $remoteConfig.cm_node } else { $config.cm_node }
+                                $newBdNode = if ($remoteConfig.ContainsKey('bd_node')) { $remoteConfig.bd_node } else { $config.bd_node }
+                                Start-PingBackgroundJob -CtNode $newCtNode -CuNode $newCuNode -CmNode $newCmNode -BdNode $newBdNode -PingType $remoteConfig.ping_type -TempFile $pingTempFile
                             }
                         }
-                        if (Save-Config -Config $config) {
-                            $effectiveRemoteReportInterval = [math]::Max($remoteConfig.report_interval, 60)
-                            $script:cs_reportInterval = $effectiveRemoteReportInterval
-                            $script:cs_pingType = $remoteConfig.ping_type
-                            $script:cs_resetDay = $remoteConfig.reset_day
-                            $script:cs_configMd5 = $remoteConfig.config_md5
-                            if ($remoteConfig.ContainsKey('ct_node')) { $script:cs_ctNode = $remoteConfig.ct_node }
-                            if ($remoteConfig.ContainsKey('cu_node')) { $script:cs_cuNode = $remoteConfig.cu_node }
-                            if ($remoteConfig.ContainsKey('cm_node')) { $script:cs_cmNode = $remoteConfig.cm_node }
-                            if ($remoteConfig.ContainsKey('bd_node')) { $script:cs_bdNode = $remoteConfig.bd_node }
-                            $timer.Interval = $effectiveRemoteReportInterval * 1000
-                            Write-Log "动态配置已应用: md5=$($remoteConfig.config_md5) report_interval=$($remoteConfig.report_interval)s ct=$($remoteConfig.ct_node) cu=$($remoteConfig.cu_node) cm=$($remoteConfig.cm_node) bd=$($remoteConfig.bd_node)" "INFO"
 
-                            if ($remoteConfig.ContainsKey('rx_correction') -or $remoteConfig.ContainsKey('tx_correction')) {
-                                $rxCorr = if ($remoteConfig.ContainsKey('rx_correction')) { $remoteConfig.rx_correction } else { "" }
-                                $txCorr = if ($remoteConfig.ContainsKey('tx_correction')) { $remoteConfig.tx_correction } else { "" }
-                                Invoke-TrafficCorrection -ServerId $srvId -Secret $sec -WorkerUrl $wUrl -RxCorrection $rxCorr -TxCorrection $txCorr
-                            }
+                        if ($configApplied -and ($remoteConfig.ContainsKey('rx_correction') -or $remoteConfig.ContainsKey('tx_correction'))) {
+                            $rxCorr = if ($remoteConfig.ContainsKey('rx_correction')) { $remoteConfig.rx_correction } else { "" }
+                            $txCorr = if ($remoteConfig.ContainsKey('tx_correction')) { $remoteConfig.tx_correction } else { "" }
+                            Invoke-TrafficCorrection -ServerId $srvId -Secret $sec -WorkerUrl $wUrl -RxCorrection $rxCorr -TxCorrection $txCorr
                         }
                     }
                 } catch {

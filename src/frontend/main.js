@@ -5,8 +5,17 @@ import './styles/main.css'
 import './styles/light.css'
 import { currentLang, translations } from './utils/i18n'
 import { http } from './utils/http'
-import { initConfig, getTitle, getBackgroundImage, hasMultipleApiBases } from './utils/config'
+import { initConfig, hasMultipleApiBases } from './utils/config'
 import { VERSION } from './utils/api'
+import {
+  clearTurnstileToken,
+  fetchAllTurnstileConfigs,
+  getTurnstileEnabledSites,
+  hasTurnstileSiteKeyMismatch,
+  isTurnstileValueEnabled,
+  loadTurnstileScript,
+  setTurnstileToken
+} from './utils/turnstile'
 
 const getTranslation = () => {
   const lang = localStorage.getItem('language_preference') || 'zh'
@@ -27,14 +36,16 @@ async function fetchConfig() {
       return { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', version: '', verified: false }
     }
 
-    const turnstileEnabled = data.turnstile_enabled === true
-    const turnstileLoginEnabled = data.turnstile_login_enabled === true
+    const turnstileEnabled = isTurnstileValueEnabled(data.turnstile_enabled)
+    const turnstileLoginEnabled = isTurnstileValueEnabled(data.turnstile_login_enabled)
     const turnstileSiteKey = data.turnstile_site_key || ''
     const version = data.version || ''
     const verified = data.verified === true
     const isPublic = data.is_public !== false
     const authorization = data.authorization === true
     const siteTitle = data.site_title || ''
+    const cspStatic = data.csp_static || ''
+    const cspApi = data.csp_api || ''
 
     if (version) {
       VERSION.value = version
@@ -48,7 +59,9 @@ async function fetchConfig() {
       verified,
       is_public: isPublic,
       authorization,
-      site_title: siteTitle
+      site_title: siteTitle,
+      csp_static: cspStatic,
+      csp_api: cspApi
     }
   } catch (e) {
     console.error('Failed to fetch config:', e)
@@ -56,23 +69,12 @@ async function fetchConfig() {
   return { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', verified: false }
 }
 
-async function loadTurnstileScript() {
-  return new Promise((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js'
-    script.async = true
-    script.onload = resolve
-    script.onerror = reject
-    document.head.appendChild(script)
-  })
-}
-
 async function verifyTurnstileByIndex(siteKey, apiIndex = 0) {
   return new Promise((resolve) => {
-    turnstile.render('#turnstile-container', {
+    window.turnstile.render('#turnstile-container', {
       sitekey: siteKey,
       callback: async (token) => {
-        localStorage.setItem('turnstile_token', token)
+        setTurnstileToken(token)
         try {
           const result = await http.getByIndex('/api/config', apiIndex, { includeAuth: false, includeTurnstile: true, autoRedirect: false })
           if (!result.error) {
@@ -90,37 +92,11 @@ async function verifyTurnstileByIndex(siteKey, apiIndex = 0) {
         resolve(false)
       },
       expiredCallback: () => {
-        localStorage.removeItem('turnstile_token')
+        clearTurnstileToken()
         resolve(false)
       }
     })
   })
-}
-
-const isEnabled = (value) => value === true || value === 'true'
-const normalizeSiteKey = (value) => String(value || '').trim()
-
-const getEnabledTurnstileSites = (results, mode = 'global') => {
-  return results
-    .map((result, index) => ({ result, index }))
-    .filter(({ result }) => {
-      if (result.error || !result.data) return false
-      if (mode === 'login') {
-        return isEnabled(result.data.turnstile_enabled) || isEnabled(result.data.turnstile_login_enabled)
-      }
-      return isEnabled(result.data.turnstile_enabled)
-    })
-    .map(({ result, index }) => ({
-      index,
-      data: result.data,
-      siteKey: normalizeSiteKey(result.data.turnstile_site_key),
-      verified: result.data.verified === true
-    }))
-}
-
-const hasTurnstileSiteKeyMismatch = (sites) => {
-  const keys = [...new Set(sites.map(site => site.siteKey).filter(Boolean))]
-  return sites.some(site => !site.siteKey) || keys.length > 1
 }
 
 const getPrivateAccessState = (results) => {
@@ -129,14 +105,6 @@ const getPrivateAccessState = (results) => {
     hasPrivateSite: privateSites.length > 0,
     hasUnauthorizedPrivateSite: privateSites.some(result => result.data.authorization !== true)
   }
-}
-
-const fetchAllConfigs = async () => {
-  let results = await http.getAll('/api/config', { includeAuth: true, includeTurnstile: true, autoRedirect: false })
-  if (results.some(result => result.status === 403)) {
-    results = await http.getAll('/api/config', { includeAuth: true, includeTurnstile: false, autoRedirect: false })
-  }
-  return results
 }
 
 const showTurnstileError = (title, desc) => {
@@ -209,21 +177,6 @@ async function initApp() {
   // HTTP / WebSocket requests go through the configured origin.
   await initConfig()
 
-  const appTitle = getTitle()
-  const bgImage = getBackgroundImage()
-
-  if (appTitle) {
-    document.title = appTitle
-  }
-
-  if (bgImage) {
-    document.body.style.backgroundImage = `url(${bgImage})`
-    document.body.style.backgroundSize = 'cover'
-    document.body.style.backgroundPosition = 'center'
-    document.body.style.backgroundRepeat = 'no-repeat'
-    document.body.style.backgroundAttachment = 'fixed'
-  }
-
   const isMultipleMode = hasMultipleApiBases()
   const currentHash = window.location.hash
   const isAdmin = currentHash.startsWith('#/admin')
@@ -232,26 +185,28 @@ async function initApp() {
   let config
   if (isMultipleMode && !isAdmin) {
     try {
-      const results = await fetchAllConfigs()
-      const enabledTurnstileSites = getEnabledTurnstileSites(results, 'global')
-      if (hasTurnstileSiteKeyMismatch(enabledTurnstileSites)) {
-        showTurnstileSiteKeyMismatch()
-        return
-      }
+      const results = await fetchAllTurnstileConfigs()
+      const enabledTurnstileSites = getTurnstileEnabledSites(results, 'global')
       const first = results.find(r => !r.error && r.data)
       const sharedTurnstileSite = enabledTurnstileSites[0] || null
       const privateAccess = getPrivateAccessState(results)
+      if (!privateAccess.hasPrivateSite && hasTurnstileSiteKeyMismatch(enabledTurnstileSites)) {
+        showTurnstileSiteKeyMismatch()
+        return
+      }
       config = first ? {
-        turnstile_enabled: isEnabled(first.data.turnstile_enabled),
-        turnstile_login_enabled: isEnabled(first.data.turnstile_login_enabled),
+        turnstile_enabled: isTurnstileValueEnabled(first.data.turnstile_enabled),
+        turnstile_login_enabled: isTurnstileValueEnabled(first.data.turnstile_login_enabled),
         turnstile_site_key: sharedTurnstileSite?.siteKey || first.data.turnstile_site_key || '',
         turnstile_api_index: sharedTurnstileSite?.index || 0,
         version: first.data.version || '',
         verified: sharedTurnstileSite ? enabledTurnstileSites.every(site => site.verified) : first.data.verified === true,
         is_public: !privateAccess.hasPrivateSite,
         authorization: !privateAccess.hasUnauthorizedPrivateSite,
-        site_title: getTitle() || first.data.site_title || ''
-      } : { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', turnstile_api_index: 0, version: '', verified: false, is_public: true, authorization: false, site_title: getTitle() || '' }
+        site_title: first.data.site_title || '',
+        csp_static: first.data.csp_static || '',
+        csp_api: first.data.csp_api || ''
+      } : { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', turnstile_api_index: 0, version: '', verified: false, is_public: true, authorization: false, site_title: '', csp_static: '', csp_api: '' }
       if (sharedTurnstileSite) {
         config.turnstile_enabled = true
         config.turnstile_site_key = sharedTurnstileSite.siteKey
@@ -259,7 +214,7 @@ async function initApp() {
       }
       if (config.version) VERSION.value = config.version
     } catch (_) {
-      config = { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', turnstile_api_index: 0, version: '', verified: false, is_public: true, authorization: false }
+      config = { turnstile_enabled: false, turnstile_login_enabled: false, turnstile_site_key: '', turnstile_api_index: 0, version: '', verified: false, is_public: true, authorization: false, csp_static: '', csp_api: '' }
     }
   } else {
     config = await fetchConfig()

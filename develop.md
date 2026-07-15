@@ -32,14 +32,14 @@
 │  (纯静态)    │                          │  (API 后端)          │
 └─────────────┘                          └─────────────────────┘
        │                                         │
-       │ fetch /config.json                      │ D1 数据库
+       │ 读取 HTML meta 运行时配置                  │ D1 数据库
        ▼                                         ▼
-  public/config.json                      服务器指标数据
+  index.html meta                         服务器指标数据
 ```
 
 - 前端是**纯静态文件**，可部署到任何静态托管（GitHub Pages、Cloudflare Pages 等）
 - 后端是 Cloudflare Worker + D1 数据库
-- 前端通过 `config.json` 获取 API 地址，支持多后端聚合
+- 前端通过 `index.html` 中的 meta 运行时配置获取 API 地址，支持多后端聚合
 - 路由使用 **Hash 模式**（`/#/`、`/#/server/:id`、`/#/admin`）
 
 ---
@@ -51,14 +51,14 @@
 ```
 浏览器加载 index.html
 │
-├─ ① 加载 config.json（前端配置）
-│    GET /config.json?t=<时间戳>  （cache: no-cache, credentials: omit）
-│    → 获取 apiBase: string[]、title、backgroundImage
-│    → 如果失败，使用 [window.location.origin] 作为默认 apiBase（始终是数组）
+├─ ① 读取 HTML meta（前端运行时配置）
+│    meta[name="apiBase"]
+│    → 获取 apiBase: string[]
+│    → 如果 apiBase 为空，使用 [window.location.origin] 作为默认 apiBase（始终是数组）
 │
-├─ ② 设置页面标题和背景图
-│    document.title = title
-│    document.body.style.backgroundImage = backgroundImage
+├─ ② 读取页面标题和背景图
+│    TITLE 构建变量写入 <title>，前端通过 document.title 读取多站显示标题
+│    BACKGROUND_IMAGE 构建变量或后台 custom_bg 由构建脚本/Worker 注入 CSS
 │
 ├─ ③ 获取后端站点配置
 │    单站模式：GET /api/config（单次请求）
@@ -90,7 +90,7 @@
 
 ### 多站模式
 
-当 `config.json` 中 `apiBase` 数组长度 > 1 时：
+当 `index.html` 的 `apiBase` meta 中配置了多个地址时：
 - 首页会向**所有后端**并行请求服务器列表并**合并**结果
 - 每台服务器会标记 `source` 字段（来自哪个 apiBase）
 - WebSocket 为每个 apiBase 创建**独立连接**，每个连接只传该后端的服务器 ID
@@ -163,8 +163,8 @@
 - 点击行跳转到服务器详情
 
 #### 地图视图
-- 动态加载 Leaflet.js
-- 加载世界 GeoJSON（`https://cdn.jsdelivr.net/npm/@surbowl/world-geo-json-zh@2.1.5/world.zh.json`）
+- 通过 `getPublicAssetUrl()` 动态加载本地 Leaflet.js / Leaflet.css
+- 通过 `getPublicAssetUrl('world.zh.json')` 加载世界 GeoJSON
 - 按 `regionStats` 在对应国家高亮 + 标记服务器数量
 - 国家坐标映射表（US、CN、JP、HK、SG 等 30+ 国家/地区）
 - 主题切换时重绘标记颜色
@@ -389,8 +389,7 @@ WebSocket 收到 `batchUpdate` 消息后，数据**不是立即应用**，而是
 |------|------|------|
 | `apiBases` | string[] | API 后端地址列表 |
 | `wsBase` | string | WebSocket 基地址（从 apiBases[0] 推导） |
-| `title` | string | 页面标题 |
-| `backgroundImage` | string | 背景图 URL |
+| `title` | string | 页面标题（从 document.title 读取） |
 | `currentTheme` | 'dark' \| 'light' \| 'auto' | 主题模式 |
 | `currentLang` | 'en' \| 'zh' | 当前语言 |
 | `jwtToken` | string \| null | 登录凭证（存 localStorage） |
@@ -627,7 +626,8 @@ getFlagRegionCode(region):
 
 ```bash
 npm install
-npm run dev    # Vite 开发服务器，https://localhost:5173
+npm run dev              # 本地 Worker，https://localhost:8787
+npm run dev:frontend     # Vite 前端开发服务器，http://localhost:5173
 ```
 
 ### 生产构建
@@ -636,10 +636,10 @@ npm run dev    # Vite 开发服务器，https://localhost:5173
 API_BASE="https://api1.com,https://api2.com" \
 TITLE="My Monitor" \
 BACKGROUND_IMAGE="https://cdn.example.com/bg.webp" \
-npm run build
+npm run build:github-page
 ```
 
-环境变量自动生成 `public/config.json`，输出到 `dist/`。
+构建脚本会把环境变量注入到 `index.html` 的 meta 标签，并把产物输出到 `dist/`。
 
 ### 部署清单
 
@@ -652,4 +652,7 @@ npm run build
 必须一起部署的文件：
 - `index.html`
 - `assets/`（JS/CSS bundle）
-- `config.json`（运行时配置）
+- `favicon.ico`
+- `flags/`（本地国旗 SVG）
+- `leaflet.js`、`leaflet.css`
+- `world.zh.json`

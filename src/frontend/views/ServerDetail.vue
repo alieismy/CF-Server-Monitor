@@ -32,7 +32,7 @@
         <div class="host-name">
           <span class="prompt">root@</span>
           <span v-if="server.region && server.region !== 'xx'">
-          <img :src="'https://flagcdn.com/24x18/' + getFlagRegionCode(server.region) + '.png'" :alt="server.region" class="flag-img" style="margin-right:6px;">
+          <img :src="getPublicAssetUrl('flags/' + getFlagRegionCode(server.region) + '.svg')" :alt="server.region" class="flag-img" style="margin-right:6px;">
         </span>
           <span v-else>🏳️</span>
           <span>{{ server.name || 'Loading...' }}</span>
@@ -288,7 +288,7 @@ import { useRoute, useRouter } from 'vue-router'
 import TerminalHeader from '../components/TerminalHeader.vue'
 import Footer from '../components/Footer.vue'
 import { fetchServerDetail, fetchAllHistory, formatBytes, isAdminLoggedIn, createLiveSocket, getFlagRegionCode, isServerOnline } from '../utils/api.js'
-import { hasMultipleApiBases } from '../utils/config.js'
+import { hasMultipleApiBases, getPublicAssetUrl } from '../utils/config.js'
 import Chart from 'chart.js/auto'
 import 'chartjs-adapter-date-fns'
 import { t, currentLang, useTranslation } from '../utils/i18n'
@@ -642,6 +642,9 @@ const updateChartsTheme = (theme) => {
   })
 }
 
+const { onThemeChange } = useTheme()
+onThemeChange(updateChartsTheme)
+
 // ≤1h: gap超过5分钟断线; >1h: 总时长/80，最低5分钟基础阈值
 const getHistoryGapBreakMs = (hours = currentHours.value) => {
   if (hours <= 1) return 5 * 60 * 1000
@@ -818,6 +821,13 @@ const loadAllHistory = async (hours) => {
       })
     })
   } catch (e) {
+    if (e && e.status === 401) {
+      showLoginModal.value = true
+      currentHours.value = 0.167
+      historyLoaded.value = true
+      return
+    }
+
     if (e && e.message === 'databaseUpgradeRequired') {
       if (!databaseUpgradeAlertShown) {
         databaseUpgradeAlertShown = true
@@ -1021,9 +1031,6 @@ const init = async () => {
   await initChartsOnMount()
 
   loadAllHistory(currentHours.value)
-
-  const { onThemeChange } = useTheme()
-  onThemeChange(updateChartsTheme)
 
   liveSocket = createLiveSocket(String(serverId), {
     onUpdate: ({ serverId: sid, data }) => {

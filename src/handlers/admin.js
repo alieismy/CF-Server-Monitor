@@ -1,7 +1,7 @@
 import { checkAuth, simpleAuthResponse, validateCredentials, generateToken } from '../middleware/auth.js';
 import { getLatestMetricsForAllServers } from '../database/schema.js';
 import { getAllServers, clearServersListCache } from '../utils/cache.js';
-import { clearAppearanceSettingsCache, saveSiteOptions } from '../utils/settings.js';
+import { clearAppearanceSettingsCache, saveSiteOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { verifyTurnstileToken, hashPassword } from '../utils/common.js';
 import { AppError, createSuccessResponse, createBadRequestResponse, createUnauthorizedResponse, createErrorResponse } from '../utils/errors.js';
@@ -16,6 +16,31 @@ function isValidUUID(id) {
 
 function isValidName(name) {
   return name && typeof name === 'string' && name.trim().length > 0 && name.length <= 100;
+}
+
+function sanitizeCspDomains(input) {
+  if (!input || typeof input !== 'string') return '';
+  return input
+    .split(',')
+    .map(s => s.trim())
+    .map(normalizeCspOrigin)
+    .filter(Boolean)
+    .filter((domain, index, arr) => arr.indexOf(domain) === index)
+    .join(',');
+}
+
+function normalizeCspOrigin(value) {
+  const raw = String(value || '').trim();
+  if (!raw || /[\s;"']/.test(raw)) return '';
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') return '';
+    if (url.username || url.password || url.search || url.hash) return '';
+    if (url.pathname && url.pathname !== '/') return '';
+    return url.origin;
+  } catch (_) {
+    return '';
+  }
 }
 
 async function deleteServer(db, id) {
@@ -230,13 +255,9 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
         online: 0,
         offline: 0,
         total_cpu: 0,
-        total_ram: 0,
-        total_disk: 0,
         total_net_in: 0,
         total_net_out: 0,
-        avg_cpu: 0,
-        avg_ram: 0,
-        avg_disk: 0
+        avg_cpu: 0
       };
       
       const serversWithStatus = servers.map(server => {
@@ -261,12 +282,11 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
         
         item.is_online = isOnline;
         if (!item.region) item.region = server.region || '';
+        delete item.bandwidth;
 
         if (isOnline) {
           stats.online++;
           stats.total_cpu += parseFloat(item.cpu) || 0;
-          stats.total_ram += parseFloat(item.ram) || 0;
-          stats.total_disk += parseFloat(item.disk) || 0;
           stats.total_net_in += parseFloat(item.net_in_speed) || 0;
           stats.total_net_out += parseFloat(item.net_out_speed) || 0;
         } else {
@@ -278,8 +298,6 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       
       if (stats.online > 0) {
         stats.avg_cpu = (stats.total_cpu / stats.online).toFixed(2);
-        stats.avg_ram = (stats.total_ram / stats.online).toFixed(2);
-        stats.avg_disk = (stats.total_disk / stats.online).toFixed(2);
       }
 
       return createSuccessResponse({
@@ -289,11 +307,17 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       });
     }
     else if (data.action === 'd1_usage') {
+      const hasCloudflareToken = Object.prototype.hasOwnProperty.call(data, 'cloudflare_token');
+      const hasCloudflareAccountId = Object.prototype.hasOwnProperty.call(data, 'cloudflare_account_id');
+      const cloudflareToken = hasCloudflareToken ? data.cloudflare_token : (sys?.cloudflare_token || '');
+      const cloudflareAccountId = hasCloudflareAccountId ? data.cloudflare_account_id : (sys?.cloudflare_account_id || '');
+
       try {
-        const usage = await getD1DailyUsage(sys.cloudflare_token || '', sys.cloudflare_account_id || '');
+        const usage = await getD1DailyUsage(String(cloudflareToken || '').trim(), String(cloudflareAccountId || '').trim());
         return createSuccessResponse({
           success: true,
-          usage
+          usage,
+          message: 'd1UsageQueried'
         });
       } catch (e) {
         return createBadRequestResponse(e.message);
@@ -335,13 +359,15 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
         }
       }
 
-      const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'custom_head', 'custom_script'];
-      const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_bw', 'show_tf', 'show_time', 'show_long_history', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'expire_reminder'];
-
       const appearanceOptions = {};
       for (const field of APPEARANCE_FIELDS) {
         if (settings[field] !== undefined) {
-          appearanceOptions[field] = settings[field];
+          // CSP 字段格式校验：只允许 https:// 开头的域名，逗号分隔
+          if (field === 'csp_static' || field === 'csp_api') {
+            appearanceOptions[field] = sanitizeCspDomains(settings[field]);
+          } else {
+            appearanceOptions[field] = settings[field];
+          }
         }
       }
       await env.DB.prepare(
@@ -432,7 +458,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       });
     }
     else if (data.action === 'edit') {
-      const { id, name, server_group, price, expire_date, bandwidth, traffic_limit, traffic_calc_type, reset_day, collect_interval, report_interval, ping_mode, custom_ct, custom_cu, custom_cm, custom_bd, rx_correction, tx_correction, offline_notify_disabled, is_hidden } = data;
+      const { id, name, server_group, tags, note, price, expire_date, traffic_limit, traffic_calc_type, reset_day, collect_interval, report_interval, ping_mode, custom_ct, custom_cu, custom_cm, custom_bd, rx_correction, tx_correction, offline_notify_disabled, is_hidden } = data;
       if (!id || !isValidUUID(id)) {
         return createBadRequestResponse('invalidServerId');
       }
@@ -455,6 +481,13 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       const safeCustomCu = sanitizePing(custom_cu);
       const safeCustomCm = sanitizePing(custom_cm);
       const safeCustomBd = sanitizePing(custom_bd);
+      const safeTags = String(tags || '')
+        .split(',')
+        .map(tag => tag.trim().replace(/[^\p{L}\p{N} ._\-]/gu, '').slice(0, 32))
+        .filter(Boolean)
+        .slice(0, 12)
+        .join(',');
+      const safeNote = String(note || '').trim().slice(0, 500);
 
       const toNullCorrection = (v) => {
         if (v === null || v === undefined || v === '') return null;
@@ -469,14 +502,15 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       try {
         await env.DB.prepare(`
           UPDATE servers
-          SET name = ?, server_group = ?, price = ?, expire_date = ?, bandwidth = ?, traffic_limit = ?, traffic_calc_type = ?, reset_day = ?, collect_interval = ?, report_interval = ?, ping_mode = ?, custom_ct = ?, custom_cu = ?, custom_cm = ?, custom_bd = ?, rx_correction = ?, tx_correction = ?, offline_notify_disabled = ?, is_hidden = ?
+          SET name = ?, server_group = ?, tags = ?, note = ?, price = ?, expire_date = ?, traffic_limit = ?, traffic_calc_type = ?, reset_day = ?, collect_interval = ?, report_interval = ?, ping_mode = ?, custom_ct = ?, custom_cu = ?, custom_cm = ?, custom_bd = ?, rx_correction = ?, tx_correction = ?, offline_notify_disabled = ?, is_hidden = ?
           WHERE id = ?
         `).bind(
           name || '',
           server_group || 'Default',
+          safeTags,
+          safeNote,
           price || '',
           expire_date || '',
-          bandwidth || '',
           traffic_limit || '',
           traffic_calc_type || 'total',
           normalizedAgentConfig.reset_day,

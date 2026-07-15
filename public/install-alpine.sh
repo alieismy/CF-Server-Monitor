@@ -341,6 +341,7 @@ apply_remote_config() {
     new_md5=$(awk 'tolower($1)=="x-agent-config-md5:" { gsub("\r", "", $2); print tolower($2); exit }' "$header_file")
     [ "${#new_md5}" -eq 32 ] || return 1
     case "$new_md5" in *[!0-9a-f]*) return 1 ;; esac
+
     new_collect=$(printf '%s' "$body" | cut -d '&' -f 1); new_collect=${new_collect#collect_interval=}
     new_ping=$(printf '%s' "$body" | cut -d '&' -f 2); new_ping=${new_ping#ping_mode=}
     new_report=$(printf '%s' "$body" | cut -d '&' -f 3); new_report=${new_report#report_interval=}
@@ -367,19 +368,37 @@ apply_remote_config() {
         case "$f10" in rx_correction=*) new_rx_corr="${f10#rx_correction=}" ;; esac
         case "$f11" in tx_correction=*) new_tx_corr="${f11#tx_correction=}" ;; esac
     fi
-    persist_dynamic_config "$new_collect" "$new_report" "$new_ping" "$new_reset" "$new_md5" "$new_ct" "$new_cu" "$new_cm" "$new_bd" || return 1
-    COLLECT_INTERVAL="$new_collect"
-    REPORT_INTERVAL="$new_report"
-    PING_TYPE="$new_ping"
-    RESET_DAY="$new_reset"
-    CT_NODE="$new_ct"
-    CU_NODE="$new_cu"
-    CM_NODE="$new_cm"
-    BD_NODE="$new_bd"
-    CONFIG_MD5="$new_md5"
-    ACTIVE_INTERVAL="$REPORT_INTERVAL"
-    [ "$COLLECT_INTERVAL" -gt 0 ] && ACTIVE_INTERVAL="$COLLECT_INTERVAL"
-    log_info "Dynamic configuration applied: md5=${CONFIG_MD5} ct=${CT_NODE:-} cu=${CU_NODE:-} cm=${CM_NODE:-} bd=${BD_NODE:-}"
+    if [ "$new_md5" != "${CONFIG_MD5:-none}" ]; then
+        persist_dynamic_config "$new_collect" "$new_report" "$new_ping" "$new_reset" "$new_md5" "$new_ct" "$new_cu" "$new_cm" "$new_bd" || return 1
+        COLLECT_INTERVAL="$new_collect"
+        REPORT_INTERVAL="$new_report"
+        PING_TYPE="$new_ping"
+        RESET_DAY="$new_reset"
+        CT_NODE="$new_ct"
+        CU_NODE="$new_cu"
+        CM_NODE="$new_cm"
+        BD_NODE="$new_bd"
+        CONFIG_MD5="$new_md5"
+        ACTIVE_INTERVAL="$REPORT_INTERVAL"
+        [ "$COLLECT_INTERVAL" -gt 0 ] && ACTIVE_INTERVAL="$COLLECT_INTERVAL"
+        log_info "Dynamic configuration applied: md5=${CONFIG_MD5} ct=${CT_NODE:-} cu=${CU_NODE:-} cm=${CM_NODE:-} bd=${BD_NODE:-}"
+
+        if kill -0 "$WORKER_PID" 2>/dev/null; then
+            pkill -P "$WORKER_PID" 2>/dev/null || true
+            kill "$WORKER_PID" 2>/dev/null || true
+            wait "$WORKER_PID" 2>/dev/null || true
+        fi
+        rm -f /dev/shm/.cf_ping_* /dev/shm/.cf_loss_* 2>/dev/null || true
+        run_network_worker &
+        WORKER_PID=$!
+
+        if [ "$COLLECT_INTERVAL" -gt 0 ]; then
+            SAMPLES_JSON=""
+            SAMPLE_COUNT=0
+        fi
+        LAST_REPORT_TIME=0
+    fi
+
     if [ -n "$new_rx_corr" ] || [ -n "$new_tx_corr" ]; then
         if apply_traffic_correction "$new_rx_corr" "$new_tx_corr"; then
             send_correction_confirm "$new_rx_corr" "$new_tx_corr" || true
@@ -718,7 +737,8 @@ write_probe_result() {
     local dest="$1"
     shift
     local tmp="${dest}.tmp"
-    if "$@" > "$tmp"; then
+    rm -f "$tmp"
+    if "$@" > "$tmp" 2>/dev/null && [ -f "$tmp" ]; then
         mv "$tmp" "$dest"
     else
         rm -f "$tmp" "$dest"

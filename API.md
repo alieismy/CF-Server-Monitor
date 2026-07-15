@@ -406,7 +406,6 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   "sysConfig": {
     "show_price": true,
     "show_expire": true,
-    "show_bw": true,
     "show_tf": true,
     "site_title": "My Server Monitor"
   }
@@ -441,7 +440,6 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   "server_group": "HK",
   "price": "￥30/月",
   "expire_date": "2026-12-31",
-  "bandwidth": "1Gbps",
   "traffic_limit": "1TB",
   "traffic_calc_type": "total",
   "reset_day": 1,
@@ -888,7 +886,6 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled === 
     "is_public": "true",
     "show_price": "true",
     "show_expire": "true",
-    "show_bw": "true",
     "show_tf": "true",
     "show_long_history": "true",
     "tg_notify": "false",
@@ -969,7 +966,6 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled === 
   "server_group": "HK",               // 默认 "Default"
   "price": "￥30/月",                  // 字符串
   "expire_date": "2026-12-31",
-  "bandwidth": "1Gbps",
   "traffic_limit": "1TB",
   "traffic_calc_type": "total",       // total | ...
   "reset_day": 1,                     // 1 ~ 31
@@ -1136,7 +1132,6 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled === 
 | `server_group`                                | string             | 分组                        |
 | `price`                                       | string             | 价格文本（自由格式）                |
 | `expire_date`                                 | string             | 到期日 `YYYY-MM-DD`          |
-| `bandwidth`                                   | string             | 带宽文本                      |
 | `traffic_limit`                               | string             | 流量上限文本                    |
 | `traffic_calc_type`                           | string             | `total` / 其他              |
 | `reset_day`                                   | number             | 流量重置日 1\~31               |
@@ -1199,7 +1194,6 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled === 
   is_public: 'true' | 'false',
   show_price: 'true' | 'false',
   show_expire: 'true' | 'false',
-  show_bw: 'true' | 'false',
   show_tf: 'true' | 'false',
   show_long_history: 'true' | 'false',
   tg_notify: 'true' | 'false',

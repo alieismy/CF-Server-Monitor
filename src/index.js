@@ -82,6 +82,11 @@ async function isTurnstileVerified(request, env, sys) {
 
 async function fetchHistoryData(env, request, id, hours, columns, sys = null) {
   if (!id) return createBadRequestResponse('Missing ID');
+
+  const ALLOWED_HOURS = [0.167, 0.5, 1, 6, 12, 24, 48, 96, 168];
+  if (!ALLOWED_HOURS.includes(hours)) {
+    return createBadRequestResponse('Invalid hours parameter');
+  }
   
   if (!sys) {
     sys = await loadSiteSettings(env.DB);
@@ -258,6 +263,8 @@ export default {
           turnstile_login_enabled: turnstileEnabled || turnstileLoginEnabled,
           turnstile_site_key: sys.turnstile_site_key || '',
           site_title: appearanceOptions.site_title || '',
+          csp_static: appearanceOptions.csp_static || '',
+          csp_api: appearanceOptions.csp_api || '',
           verified: verified,
           turnstile_verified: turnstileVerified,
           show_long_history: sys.show_long_history === 'true'

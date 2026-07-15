@@ -163,7 +163,6 @@ Headers: (按需) Authorization: Bearer <jwt>, X-Turnstile-Token/Verified
   "sysConfig": {
     "show_price": true,
     "show_expire": true,
-    "show_bw": true,
     "show_tf": true,
     "site_title": "My Server Monitor"
   }
@@ -208,7 +207,6 @@ Headers: (按需) Authorization, X-Turnstile-Token/Verified
   "server_group": "HK",
   "price": "￥30/月",
   "expire_date": "2026-12-31",
-  "bandwidth": "1Gbps",
   "traffic_limit": "1TB",
   "traffic_calc_type": "total",
   "reset_day": 1,
@@ -426,7 +424,6 @@ interface Server {
   server_group: string;
   price: string;
   expire_date: string;
-  bandwidth: string;
   traffic_limit: string;
   traffic_calc_type: string;
   reset_day: number;
@@ -478,7 +475,6 @@ interface Server {
 interface SysConfig {
   show_price: boolean;
   show_expire: boolean;
-  show_bw: boolean;
   show_tf: boolean;
   site_title: string;
   show_long_history?: boolean;
@@ -492,7 +488,6 @@ interface Settings {
   is_public: 'true' | 'false';
   show_price: 'true' | 'false';
   show_expire: 'true' | 'false';
-  show_bw: 'true' | 'false';
   show_tf: 'true' | 'false';
   show_long_history: 'true' | 'false';
   tg_notify: 'true' | 'false';

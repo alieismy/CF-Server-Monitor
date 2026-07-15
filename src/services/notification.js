@@ -60,7 +60,10 @@ export async function sendNotification(settings, msg) {
     } catch (e) {
       return "飞书机器人通知发送失败: " + e.message;
     }
-  }else if(settings.tg_bot_token.includes("https://api.day.app/")) {
+  }else if(settings.tg_bot_token.includes("https://api.day.app/") || settings.tg_bot_token.indexOf("bark:") == 0) {
+    if(settings.tg_bot_token.indexOf("bark:") == 0) {
+      settings.tg_bot_token = settings.tg_bot_token.replace("bark:", "");
+    }
     try {
       await fetchWithRetry(settings.tg_bot_token, {
         method: 'POST',
@@ -72,7 +75,7 @@ export async function sendNotification(settings, msg) {
         })
       });
     } catch (e) {
-      return "企业微信通知发送失败: " + e.message;
+      return "Bark通知发送失败: " + e.message;
     }
   }else if(settings.tg_bot_token.includes("https://qyapi.weixin.qq.com")){
     try {

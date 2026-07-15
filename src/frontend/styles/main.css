@@ -636,6 +636,7 @@ body::before {
 }
 
 .filter-tag img {
+    width: 16px;
     border-radius: 1px;
 }
 
@@ -809,6 +810,7 @@ body::before {
     align-items: center;
     margin-bottom: 12px;
     color: var(--text-primary);
+    font-size: 12px;
 }
 
 .card-meta {
@@ -827,7 +829,7 @@ body::before {
 }
 
 .badge {
-    padding: 2px 6px;
+    padding: 2px 4px;
     border-radius: 3px;
     font-size: 9px;
     font-weight: 700;
@@ -835,9 +837,32 @@ body::before {
     letter-spacing: 0.5px;
 }
 
-.badge-bw {
-    background: var(--accent-blue);
+.badge-tag {
     color: var(--color-inherit);
+}
+
+.tag-color-0 {
+    background: var(--accent-cyan);
+}
+
+.tag-color-1 {
+    background: var(--accent-purple);
+}
+
+.tag-color-2 {
+    background: var(--accent-pink);
+}
+
+.tag-color-3 {
+    background: var(--accent-green);
+}
+
+.tag-color-4 {
+    background: var(--accent-blue);
+}
+
+.tag-color-5 {
+    background: var(--accent-yellow);
 }
 
 .badge-tf {
@@ -1030,6 +1055,30 @@ body::before {
     background: rgba(255, 184, 112, 0.1);
     color: var(--accent-yellow);
     border: 1px solid rgba(255, 184, 112, 0.2);
+}
+
+.tag-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.admin-tag-list {
+    max-width: 180px;
+}
+
+.note-text {
+    display: inline-block;
+    max-width: 220px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.note-text.note-copied {
+    color: var(--accent-green);
 }
 
 /* --------------------------------------------------------------------------
@@ -1374,6 +1423,10 @@ body::before {
 .form-input::placeholder,
 .form-textarea::placeholder {
     color: var(--text-muted);
+}
+
+.secret-input-masked {
+    -webkit-text-security: disc;
 }
 
 .form-textarea {
@@ -2310,6 +2363,7 @@ body::before {
     vertical-align: middle;
     border-radius: 2px;
     filter: brightness(0.9);
+    width: 24px;
 }
 
 .admin-link-color {
@@ -2763,10 +2817,6 @@ body::before {
 
     .global-stats {
         grid-template-columns: 1fr;
-    }
-
-    .ping-panel {
-        grid-template-columns: repeat(2, 1fr);
     }
 
     .stats-grid {
