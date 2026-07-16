@@ -154,13 +154,6 @@ install_deps() {
 
     info "基础依赖组件检查通过"
 
-    # 检查 tcping（可选，用于更准确的丢包率测量）
-    if ! command -v tcping >/dev/null 2>&1; then
-        warn "未检测到 tcping 命令，丢包率将使用 nc 测量（如不可用则返回空值）"
-        warn "如需更准确的 TCP 层丢包率测量，请手动安装 tcping，见README.md"
-    else
-        info "tcping 已安装，将使用 tcping 测量丢包率"
-    fi
 }
 
 stop_old_service() {
@@ -696,23 +689,42 @@ get_tcp_ping_nc() {
     return 1
 }
 
+get_icmp_ping() {
+    local host="${1:-}"
+    local rtt
+    rtt=$(ping -c 1 -W 2 "${host}" 2>/dev/null | awk -F'[/ ]' '/time=/{for(i=1;i<=NF;i++) if($i~/^[0-9]+\.?[0-9]*$/ && $(i-1)~/^time=/){v=$i;gsub(/[^0-9.]/,"",v);if(v+0>0){printf "%.0f",v;exit}}}')
+    [ -n "${rtt}" ] && [ "${rtt}" -gt 0 ] 2>/dev/null && echo "${rtt}"
+}
+
+get_icmp_packet_loss() {
+    local host="${1:-}"
+    local count="${2:-4}"
+    local loss
+    loss=$(ping -c "${count}" -W 2 "${host}" 2>/dev/null | awk '/packet loss/{for(i=1;i<=NF;i++) if($i~/[0-9]+%/){gsub(/%/,"",$i);printf "%.0f",$i;exit}}')
+    [ -n "${loss}" ] && [ "${loss}" -ge 0 ] 2>/dev/null && echo "${loss}"
+}
+
 get_tcp_ping() {
     local host="${1:-}"
     local port="${2:-443}"
-    local rtt
+    local result
 
     if [ -z "${host}" ]; then
         echo ""
         return
     fi
 
-    if command -v tcping >/dev/null 2>&1; then
-        rtt=$(tcping -c 1 -t 2 "${host}" "${port}" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i~/ms$/){v=$i;gsub(/[^0-9.]/,"",v);if(v>0){print int(v+0.5);exit}}}')
-        [ -n "${rtt}" ] && [ "${rtt}" -gt 0 ] 2>/dev/null && { echo "${rtt}"; return; }
+    if has_nc_zero_io && get_time_ms >/dev/null 2>&1; then
+        result=$(get_tcp_ping_nc "${host}" "${port}")
+        if [ -n "${result}" ]; then
+            echo "${result}"
+            return
+        fi
     fi
 
-    if has_nc_zero_io && get_time_ms >/dev/null 2>&1; then
-        get_tcp_ping_nc "${host}" "${port}" || echo ""
+    result=$(get_icmp_ping "${host}")
+    if [ -n "${result}" ]; then
+        echo "${result}"
         return
     fi
 
@@ -734,15 +746,11 @@ get_packet_loss() {
     local host="${1:-}"
     local count="${2:-4}"
     local port="${3:-443}"
+    local result
 
     if [ -z "$host" ]; then
         echo ""
         return
-    fi
-
-    if command -v tcping >/dev/null 2>&1; then
-        loss=$(tcping -c "$count" -t 2 "$host" "$port" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i~/^[0-9]+(\.[0-9]+)?%$/){gsub(/%/,"",$i);print int($i+0.5);exit}}')
-        [ -n "$loss" ] && [ "$loss" -ge 0 ] 2>/dev/null && { echo "$loss"; return; }
     fi
 
     if has_nc_zero_io && get_time_ms >/dev/null 2>&1; then
@@ -753,6 +761,12 @@ get_packet_loss() {
             i=$((i + 1))
         done
         echo $(( (count - ok) * 100 / count ))
+        return
+    fi
+
+    result=$(get_icmp_packet_loss "${host}" "${count}")
+    if [ -n "${result}" ]; then
+        echo "${result}"
         return
     fi
 
