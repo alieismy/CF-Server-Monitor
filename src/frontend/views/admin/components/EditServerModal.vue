@@ -53,7 +53,7 @@
       <div class="form-row">
         <div class="form-group flex-1">
           <label class="form-label">{{ trans.expirationDate }}</label>
-          <input type="date" name="edit_expire_date" autocomplete="off" v-model="editForm.expire_date" class="form-input">
+          <input type="date" name="edit_expire_date" autocomplete="off" v-model="editForm.expire_date" class="form-input" @click="openDatePicker">
         </div>
 
         <div class="form-group flex-1">
@@ -230,6 +230,14 @@ const currencyLabel = (item) => currentLang.value === 'zh'
 
 const normalizePriceInput = () => {
   editForm.value.price = normalizePrice(editForm.value.price)
+}
+
+const openDatePicker = (event) => {
+  const input = event?.currentTarget
+  if (typeof input?.showPicker !== 'function') return
+  try {
+    input.showPicker()
+  } catch (_) {}
 }
 
 watch(

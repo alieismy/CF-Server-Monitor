@@ -174,18 +174,23 @@ export function utcTodayDateString(now = Date.now()) {
   return toDateString(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
 }
 
-export function renewExpireDateIfNeeded(expireDate, billingCycle, autoRenewal, now = Date.now()) {
+export function utcDateStringWithOffset(now = Date.now(), offsetDays = 0) {
+  const date = new Date(now + (Number(offsetDays) || 0) * 86400000);
+  return toDateString(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+}
+
+export function renewExpireDateIfNeeded(expireDate, billingCycle, autoRenewal, now = Date.now(), renewBeforeDays = 0) {
   const original = String(expireDate || '').trim();
   if (!original || !parseDateOnly(original) || !isEnabledFlag(autoRenewal)) {
     return { expire_date: original, renewed: false };
   }
 
   let nextDate = original;
-  const today = utcTodayDateString(now);
+  const renewalDate = utcDateStringWithOffset(now, renewBeforeDays);
   let renewed = false;
   let guard = 0;
 
-  while (nextDate <= today && guard < 1200) {
+  while (nextDate <= renewalDate && guard < 1200) {
     nextDate = addBillingCycleToDate(nextDate, billingCycle);
     renewed = true;
     guard++;
