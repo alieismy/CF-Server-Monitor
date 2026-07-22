@@ -4,10 +4,13 @@ import { DEFAULT_SITE_TITLE } from './constants'
 import { ref } from 'vue'
 import { normalizeTimestamp } from './time.js'
 import { TIME } from './constants'
+import { resolveDisplayMode } from './displayMode.js'
 
 export { getApiBases, getWsBase }
 
 export const VERSION = ref('')
+export const LAST_WORKERS_VERSION = ref('')
+export const LAST_AGENT_VERSION = ref('')
 
 export const createLiveSocket = (subscribe, handlers = {}, apiIndex = 0, serverIds = []) => {
   const { onUpdate, onStatus, onMessage } = handlers
@@ -212,26 +215,7 @@ export const formatBytes = (bytes) => {
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(k))
   const safeIndex = Math.max(0, Math.min(i, sizes.length - 1))
-  return parseFloat((bytes / Math.pow(k, safeIndex)).toFixed(2)) + ' ' + sizes[safeIndex]
-}
-
-export const getTrafficUsagePercent = (server) => {
-  const limit = parseFloat(server.traffic_limit) || 0
-  if (limit <= 0) return '0'
-
-  const limitBytes = limit * 1024 * 1024 * 1024
-  let usedBytes = 0
-
-  const calcType = server.traffic_calc_type || 'total'
-  if (calcType === 'dl') {
-    usedBytes = parseFloat(server.net_rx_monthly) || 0
-  } else if (calcType === 'ul') {
-    usedBytes = parseFloat(server.net_tx_monthly) || 0
-  } else {
-    usedBytes = (parseFloat(server.net_rx_monthly) || 0) + (parseFloat(server.net_tx_monthly) || 0)
-  }
-
-  return ((usedBytes / limitBytes) * 100).toFixed(1)
+  return parseFloat((bytes / Math.pow(k, safeIndex)).toFixed(1)) + ' ' + sizes[safeIndex]
 }
 
 export const isServerOnline = (server, now = Date.now()) => {
@@ -269,6 +253,7 @@ const createEmptyMergedData = () => ({
     show_expire: true,
     show_tf: true,
     show_time: true,
+    display_mode: 'bar',
     site_title: DEFAULT_SITE_TITLE
   }
 })
@@ -306,6 +291,7 @@ const mergeSiteResult = (mergedData, { data, error, baseUrl }, multiSite, localT
       show_expire: data.sysConfig.show_expire ?? mergedData.sysConfig.show_expire,
       show_tf: data.sysConfig.show_tf ?? mergedData.sysConfig.show_tf,
       show_time: data.sysConfig.show_time ?? mergedData.sysConfig.show_time,
+      display_mode: resolveDisplayMode(data.sysConfig, mergedData.sysConfig.display_mode),
       site_title: multiSite ? localTitle : mergedData.sysConfig.site_title
     }
   }
@@ -368,12 +354,14 @@ export const logout = () => {
   localStorage.removeItem('jwt_token')
 }
 
-export const fetchConfig = async () => {
-  const result = await http.get('/api/config', { includeAuth: true, includeTurnstile: false })
+export const fetchConfig = async (apiIndex = 0) => {
+  const result = await http.getByIndex('/api/config', apiIndex, { includeAuth: true, includeTurnstile: false })
   if (result.error) return null
   if (result.data && result.data.version) {
     VERSION.value = result.data.version
   }
+  LAST_WORKERS_VERSION.value = result.data?.last_workers_version || ''
+  LAST_AGENT_VERSION.value = result.data?.last_agent_version || ''
   return result.data
 }
 

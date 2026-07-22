@@ -92,7 +92,7 @@ function formatBytes(bytes) {
     n /= 1024;
     i++;
   }
-  const v = n < 10 && i > 0 ? n.toFixed(1) : Math.round(n);
+  const v = n.toFixed(1);
   return `${v} ${units[i]}`;
 }
 

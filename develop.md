@@ -134,7 +134,7 @@
 - 终端风格标题栏（窗口按钮 + 站点标题 + 语言切换 + 主题切换 + 管理入口链接）
 
 #### 导航区域
-- 视图切换按钮：卡片 / 表格 / 地图
+- 视图切换按钮：条形图 / 环形图 / 表格 / 地图
 - 地区筛选标签栏：从 `regionStats` 生成，格式 `[全部] N  [US] 3  [JP] 2  [UNKNOWN] 1`
   - 每个标签显示国旗图标（`https://flagcdn.com/16x12/<country-code>.png`）
   - 特殊规则：TW/HK/MO 的国旗代码映射为 `cn`
@@ -144,7 +144,7 @@
 - 总流量（↓ 入站 | ↑ 出站）
 - 实时速度（↓ N/s | ↑ N/s）
 
-#### 卡片视图
+#### 条形图 / 环形图视图
 - 按 `server_group` 分组，每组一个标题（`# 组名 [数量]`）
 - 每张卡片包含：
   - 状态灯（绿=在线，红=离线）
@@ -255,7 +255,7 @@ WebSocket 收到 `batchUpdate` 消息后，数据**不是立即应用**，而是
 | 内存使用率 | `ram_used / ram_total` + `swap_used / swap_total` | % | 是（RAM / Swap） |
 | 磁盘使用率 | `disk_used / disk_total` | % | 否 |
 | GPU 使用率 | `gpu`（有 gpu_info 时显示） | % | 否 |
-| 网络流量 | `net_in_speed` / `net_out_speed` | B/s | 是（下载 / 上传） |
+| 网络 | `net_in_speed` / `net_out_speed` | B/s | 是（下载 / 上传） |
 | 进程数 | `processes` | 数值 | 否 |
 | 连接数 | `tcp_conn` / `udp_conn` | 数值 | 是（TCP / UDP） |
 | 延迟监控 | `ping_ct / cu / cm / bd` | ms | 是（4 条线） |
@@ -338,7 +338,7 @@ WebSocket 收到 `batchUpdate` 消息后，数据**不是立即应用**，而是
 | OpenWrt | `install-openwrt.sh` | sh |
 | Windows | `cf-server-monitor.ps1` | PowerShell |
 
-参数：`-id=<serverId> -secret='<secret>' -url=<HOST>/update -collect_interval=N -interval=N -ping=<http|tcp> -reset_day=N -ct=<node> -cu=<node> -cm=<node> -bd=<node> -rx_correction=N -tx_correction=N`
+参数：`-id=<serverId> -secret='<secret>' -url=<HOST>/update -collect_interval=N -interval=N -reset_day=N -ct=<node> -cu=<node> -cm=<node> -bd=<node> -rx_correction=N -tx_correction=N`
 
 #### 系统设置（Settings Tab）
 
@@ -517,7 +517,8 @@ WebSocket 收到 `batchUpdate` 消息后，数据**不是立即应用**，而是
 | totalServers | Total Servers | 服务器总数 |
 | online | Online | 在线 |
 | offline | Offline | 离线 |
-| cards | CARDS | 卡片 |
+| barChart | BAR CHART | 条形图 |
+| ringChart | RING CHART | 环形图 |
 | table | TABLE | 列表 |
 | map | MAP | 地图 |
 | loading | Loading... | 加载中... |

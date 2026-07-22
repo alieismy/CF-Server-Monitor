@@ -26,6 +26,7 @@
           <option value="alpine">Alpine Linux</option>
           <option value="openwrt">OpenWrt / LEDE / ImmortalWrt</option>
           <option value="mac">macOS (Intel / Apple Silicon)</option>
+          <option value="synology">Synology DSM (群晖)</option>
           <option value="windows">Windows</option>
         </select>
       </div>

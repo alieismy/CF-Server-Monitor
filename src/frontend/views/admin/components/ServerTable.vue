@@ -35,15 +35,19 @@
             <th>{{ trans.tags.toUpperCase() }}</th>
             <th>{{ trans.note.toUpperCase() }}</th>
             <th>{{ trans.price.toUpperCase() }}</th>
+            <th>{{ trans.currency.toUpperCase() }}</th>
+            <th>{{ trans.billingCycle.toUpperCase() }}</th>
             <th>{{ trans.expirationDate.toUpperCase() }}</th>
+            <th>{{ trans.autoRenewal.toUpperCase() }}</th>
             <th>{{ trans.traffic.toUpperCase() }}</th>
+            <th>{{ trans.agentVersion.toUpperCase() }}</th>
             <th>{{ trans.status.toUpperCase() }}</th>
             <th>{{ trans.actions.toUpperCase() }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="servers.length === 0">
-            <td colspan="11" class="empty-state"><span class="empty-icon">📦</span> {{ trans.noServers }}</td>
+            <td colspan="15" class="empty-state"><span class="empty-icon">📦</span> {{ trans.noServers }}</td>
           </tr>
           <tr
             v-for="server in servers"
@@ -55,10 +59,14 @@
             <td class="table-center-cell"><input type="checkbox" class="server-checkbox" :value="server.id" :checked="selectedServers.includes(server.id)" @change="$emit('toggle-server', server.id)"></td>
             <td>
               <div class="server-info">
-                <span v-if="server.region && server.region !== 'xx'">
+                <span v-if="server.region && server.region !== 'xx'" class="country-os-icons">
                   <img :src="getPublicAssetUrl('flags/' + getFlagRegionCode(server.region) + '.svg')" :alt="server.region" class="flag-img">
+                  <OsIcon :os="server.os" />
                 </span>
-                <span v-else>🏳️</span>
+                <span v-else class="country-os-icons">
+                  <span class="flag-fallback">🏳️</span>
+                  <OsIcon :os="server.os" />
+                </span>
                 <router-link :to="'/server/' + server.id + (selectedApiIndex ? '?apiIndex=' + selectedApiIndex : '')" class="server-name-link">{{ server.name }}</router-link>
               </div>
             </td>
@@ -76,9 +84,18 @@
                 @dblclick.stop="$emit('copy-note', server)"
               >{{ server.note || '-' }}</span>
             </td>
-            <td><span class="price-tag">{{ server.price || '-' }}</span></td>
+            <td><span class="price-tag">{{ formatServerPrice(server) }}</span></td>
+            <td><span class="spec-text">{{ formatServerCurrency(server) }}</span></td>
+            <td><span class="spec-text">{{ formatServerBillingCycle(server) }}</span></td>
             <td><span class="date-text">{{ server.expire_date || '-' }}</span></td>
+            <td><span class="spec-text">{{ isServerAutoRenewal(server) ? trans.enabled : trans.disabled }}</span></td>
             <td><span class="spec-text">{{ server.traffic_limit ? formatBytes(server.traffic_limit * 1024 * 1024 * 1024) : '-' }}</span></td>
+            <td>
+              <span
+                class="spec-text"
+                :class="getAgentVersionClass(server.agent_version)"
+              >{{ server.agent_version || '●' }}</span>
+            </td>
             <td>
               <span :style="{ color: server.is_online ? 'var(--accent-green)' : 'var(--accent-red)' }" class="font-bold">{{ (server.is_online ? '● ' + trans.online : '● ' + trans.offline).toUpperCase() }}</span>
             </td>
@@ -101,14 +118,18 @@
 <script setup>
 import { getFlagRegionCode, formatBytes } from '../../../utils/api'
 import { getPublicAssetUrl } from '../../../utils/config'
+import { currentLang } from '../../../utils/i18n'
+import { detectBillingCycle, detectCurrencySymbol, getBillingCycleOption, isEnabledFlag, normalizeCurrency, normalizePrice } from '../../../../utils/serverBilling.js'
+import OsIcon from '../../../components/OsIcon.vue'
 
-defineProps({
+const props = defineProps({
   trans: { type: Object, required: true },
   servers: { type: Array, default: () => [] },
   selectedServers: { type: Array, default: () => [] },
   groups: { type: Array, default: () => ['Default'] },
   activeTab: { type: String, default: 'servers' },
   selectedApiIndex: { type: Number, default: 0 },
+  latestAgentVersion: { type: String, default: '' },
   copiedServerId: { type: [String, Number], default: null },
   copiedNoteServerId: { type: [String, Number], default: null }
 })
@@ -127,4 +148,27 @@ const splitTags = (value) => String(value || '')
   .map(tag => tag.trim())
   .filter(Boolean)
 const tagColorClass = (index) => `tag-color-${index % 6}`
+const formatServerPrice = (server) => {
+  const price = normalizePrice(server.price)
+  if (!price) return '-'
+  return price === '-1' ? props.trans.free : price
+}
+const formatServerCurrency = (server) => {
+  const price = normalizePrice(server.price)
+  if (!price || price === '-1') return '-'
+  return normalizeCurrency(server.currency || detectCurrencySymbol(server.price)) || '-'
+}
+const formatServerBillingCycle = (server) => {
+  const price = normalizePrice(server.price)
+  if (!price || price === '-1') return '-'
+  const option = getBillingCycleOption(detectBillingCycle(server.price) || server.billing_cycle)
+  return currentLang.value === 'zh' ? option.shortLabelZh : option.shortLabelEn
+}
+const isServerAutoRenewal = (server) => isEnabledFlag(server.auto_renewal)
+const normalizeVersion = (version) => String(version || '').trim()
+const getAgentVersionClass = (version) => {
+  const latest = normalizeVersion(props.latestAgentVersion)
+  if (!latest) return ''
+  return normalizeVersion(version) === latest ? 'text-green' : 'text-red'
+}
 </script>
