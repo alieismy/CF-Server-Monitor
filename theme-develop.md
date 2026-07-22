@@ -480,7 +480,7 @@ interface Server {
   name: string;
   server_group: string;
   tags: string;
-  price: string; // "-1" 表示免费，空白表示未设置，"0" 表示 0 元
+  price: string; // "0" 或 "-1" 表示免费，空白表示未设置
   billing_cycle: string;
   auto_renewal: string;
   currency: string;

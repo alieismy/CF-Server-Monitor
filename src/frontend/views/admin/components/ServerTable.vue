@@ -119,7 +119,7 @@
 import { getFlagRegionCode, formatBytes } from '../../../utils/api'
 import { getPublicAssetUrl } from '../../../utils/config'
 import { currentLang } from '../../../utils/i18n'
-import { detectBillingCycle, detectCurrencySymbol, getBillingCycleOption, isEnabledFlag, normalizeCurrency, normalizePrice } from '../../../../utils/serverBilling.js'
+import { detectBillingCycle, detectCurrencySymbol, getBillingCycleOption, isEnabledFlag, isFreePrice, normalizeCurrency, normalizePrice } from '../../../../utils/serverBilling.js'
 import OsIcon from '../../../components/OsIcon.vue'
 
 const props = defineProps({
@@ -151,16 +151,16 @@ const tagColorClass = (index) => `tag-color-${index % 6}`
 const formatServerPrice = (server) => {
   const price = normalizePrice(server.price)
   if (!price) return '-'
-  return price === '-1' ? props.trans.free : price
+  return isFreePrice(price) ? props.trans.free : price
 }
 const formatServerCurrency = (server) => {
   const price = normalizePrice(server.price)
-  if (!price || price === '-1') return '-'
+  if (!price || isFreePrice(price)) return '-'
   return normalizeCurrency(server.currency || detectCurrencySymbol(server.price)) || '-'
 }
 const formatServerBillingCycle = (server) => {
   const price = normalizePrice(server.price)
-  if (!price || price === '-1') return '-'
+  if (!price || isFreePrice(price)) return '-'
   const option = getBillingCycleOption(detectBillingCycle(server.price) || server.billing_cycle)
   return currentLang.value === 'zh' ? option.shortLabelZh : option.shortLabelEn
 }
