@@ -74,6 +74,11 @@ export function normalizePrice(value) {
   return num.toFixed(2);
 }
 
+export function isFreePrice(value) {
+  const price = normalizePrice(value);
+  return price === '-1' || price === '0.00';
+}
+
 export function normalizeCurrency(value) {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -174,18 +179,23 @@ export function utcTodayDateString(now = Date.now()) {
   return toDateString(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
 }
 
-export function renewExpireDateIfNeeded(expireDate, billingCycle, autoRenewal, now = Date.now()) {
+export function utcDateStringWithOffset(now = Date.now(), offsetDays = 0) {
+  const date = new Date(now + (Number(offsetDays) || 0) * 86400000);
+  return toDateString(date.getUTCFullYear(), date.getUTCMonth() + 1, date.getUTCDate());
+}
+
+export function renewExpireDateIfNeeded(expireDate, billingCycle, autoRenewal, now = Date.now(), renewBeforeDays = 0) {
   const original = String(expireDate || '').trim();
   if (!original || !parseDateOnly(original) || !isEnabledFlag(autoRenewal)) {
     return { expire_date: original, renewed: false };
   }
 
   let nextDate = original;
-  const today = utcTodayDateString(now);
+  const renewalDate = utcDateStringWithOffset(now, renewBeforeDays);
   let renewed = false;
   let guard = 0;
 
-  while (nextDate <= today && guard < 1200) {
+  while (nextDate <= renewalDate && guard < 1200) {
     nextDate = addBillingCycleToDate(nextDate, billingCycle);
     renewed = true;
     guard++;
@@ -197,7 +207,7 @@ export function renewExpireDateIfNeeded(expireDate, billingCycle, autoRenewal, n
 export function formatBillingPrice(server, lang = 'zh') {
   const price = normalizePrice(server?.price);
   if (!price) return '';
-  if (price === '-1') return lang === 'zh' ? '免费' : 'Free';
+  if (isFreePrice(price)) return lang === 'zh' ? '免费' : 'Free';
 
   const currency = normalizeCurrency(server?.currency || detectCurrencySymbol(server?.price));
   const cycle = getBillingCycleOption(detectBillingCycle(server?.price) || server?.billing_cycle);

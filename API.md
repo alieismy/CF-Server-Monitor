@@ -984,7 +984,7 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled === 
   "id": "<server UUID>",
   "name": "HK-01",                   // 可选，1~100 字符
   "server_group": "HK",               // 默认 "Default"
-  "price": "30.00",                   // 字符串，保存时自动转换为两位小数；"-1" 表示免费，空白表示未设置，"0" 表示 0 元
+  "price": "30.00",                   // 字符串，保存时自动转换为两位小数；"0" 或 "-1" 表示免费，空白表示未设置
   "billing_cycle": "month",            // month | quarter | half_year | year | two_years | three_years | four_years | five_years
   "auto_renewal": "0",                 // "0" | "1"
   "currency": "¥",                     // ¥ | $ | € | £ | ₽ | ₣ | ₹ | ₫ | ฿
@@ -1152,7 +1152,7 @@ Header：`X-Turnstile-Token: <token>`（当 `site_options.turnstile_enabled === 
 | `id`                                          | string (UUID)      | 主键                        |
 | `name`                                        | string             | 显示名                       |
 | `server_group`                                | string             | 分组                        |
-| `price`                                       | string             | 价格金额文本，保存时规范为两位小数；`-1` 表示免费，空白表示未设置，`0` 表示 0 元 |
+| `price`                                       | string             | 价格金额文本，保存时规范为两位小数；`0` 或 `-1` 表示免费，空白表示未设置 |
 | `billing_cycle`                               | string             | `month` / `quarter` / `half_year` / `year` / `two_years` / `three_years` / `four_years` / `five_years` |
 | `auto_renewal`                                | string `"0"`/`"1"` | 是否启用自动续费                    |
 | `currency`                                    | string             | 货币符号：`¥` 人民币、`$` 美元、`€` 欧元、`£` 英镑、`₽` 卢布、`₣` 法郎、`₹` 卢比、`₫` 越南盾、`฿` 泰铢 |
