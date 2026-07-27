@@ -4,11 +4,11 @@
 
 **演示地址**：<https://demo.huilang.me/>
 
-**当前Workers版本：V2.7.13 Beta4; Agent版本：1.3.2**
+**当前Workers版本：V2.8.0 Beta1; Agent版本：1.3.4**
 
 > [!IMPORTANT]
-> V2.7.10 加入了 CSP 内容安全策略。默认只允许同源资源和必要的 Cloudflare/Google Fonts 资源；
-> 
+> V2.7.10 加入了 CSP 内容安全策略。Workers 环境通过 HTTP Response Header 下发 CSP，默认只允许同源资源和必要的 Cloudflare/Google Fonts 资源；
+>
 > 第三方背景图、外部 CSS/JS、字体、图片等资源会被浏览器拦截，需要在管理后台 → 外观 → CSP 设置中加入可信域名白名单后才能加载。
 > 
 > 这是基于安全考虑，用于降低 XSS、数据注入和未知第三方资源风险。
@@ -23,33 +23,10 @@
 
 <details>
 <summary>更新记录</summary>
-
-- V2.7.13 Beta 新增显示模式选择功能，添加环形图模式，添加服务器导入导出功能，修复部分系统硬盘获取失败的bug，ping获取改成中位数。添加钉钉、OneBot (QQ) 通知支持，新增服务器计费相关字段与自动续费功能。新增JWT自动生成，修复Macos兼容，重构通知告警，简化首次安装流程。
-- V2.7.12 新增Agent自动更新功能，默认关闭，谨慎开启。（本次更新需要手动升级agent安装脚本后才生效）
-- V2.7.11 优化客户端探针脚本，减少服务器流量消耗，添加GitHub自动同步功能，实现Workers自动升级。增加了Workers/Agent版本升级提示。增加OS图标显示（本次更新需要手动升级agent安装脚本）
-- V2.7.10 加入了 CSP 内容安全策略。重构前端 admin 模块，新增 iOS Scriptable 小组件，新增 tags、note 字段
-- V2.7.9 修改数据库结构，减少一半D1写入消耗，理论上支持60+服务器监控，在保证安全的基础上，增加服务器参数下发功能。
-- V2.7.8 修复月度任务导致数据表索引丢失的严重 Bug
-- V2.7.7 添加GitHub Page部署支持，添加飞书，Bark通知支持
-- V2.7.6 添加多站点支持，包括验证码登录等，添加 Windows PowerShell 无依赖安装脚本，一些安全优化
-- V2.7.5 DO WebSocket改成 DO WebSocket Hibernation基本剔除DO Duration消耗，新增批量推送入口，每5秒批量接收多个服务器更新，减少 DO 请求次数。
-- V2.7.4 添加允许跨域配置，为后续版本额外功能做铺垫，前端加上跨域配置，修改成HASH模式，修改country为region，数据库自动维护
-- V2.7.3.3 压缩定时任务4个为2个，避免超出免费额度
-- V2.7.3.2 合并通知告警，其他代码逻辑优化
-- V2.7.3.1 当request.cf返回`cf object not available`错误，导致国家/地区代码获取失败，使用request.headers获取作为备选
-- V2.7.3 新增服务器到期提醒功能，调整后台设置页面布局
-- V2.7.2 新增支持多分区磁盘统计功能以及其他优化，增加[图文教程](https://huilang.me/cf-server-monitor-setup/)
-- V2.7.1 新增国内四线路丢包率监控与历史图表，新增GPU字段与图表展示（GPU暂未测试），后台新增 Cloudflare D1/Workers 每日额度查询功能；
-- V2.7.0 将每日数据清理改为每月1号执行的表轮换任务, 删除旧表将不再扣除D1消耗,前端图表支持查看最长7天的历史数据,优化脚本一键升级功能
-- V2.6.10 修复了方式一部署方式，同步后丢失API\_SECRET的问题
-- V2.6.9 修复地图显示问题，重构OpenWrt安装脚本，新增OpenRC服务支持
-- V2.6.8 修复网卡统计误统计非目标网卡流量的问题,修复Alpine环境UDP连接数统计错误,本次更新需要重新安装脚本才能生效
-- v2.6.7 增加了月流量统计校正功能，以及首页流量统计展示
-- v2.6.6 增加上报间隔，Ping方式，流量重置日入库功能
-- V2.6.5 修复了部分系统启动时间获取错误的问题，TCP/UDP上报格式错误导致失败问题，新增详情页面实时网速展示
-- V2.6.4 增加了 **月流量统计** 功能，升级后请在后台手动点击 **升级数据库** 来更新数据库结构。不然会导致数据库结构错误，影响正常运行。同时需要在后台设置重置日期，并重新安装脚本。
-- V2.6.3 应大家需求，增加自定义Ping设置
-- V2.6.0 降低了 50% 的D1写入消耗，强烈建议升级，升级后请在后台手动点击 升级数据库 或者 重建数据库 。
+- V2.8.0 新增主题商店功能，支持一键切换主题。
+- 探针V1.3.4添加缓存机制减少资源消耗,新增内核版本指标字段
+- V2.7 版本进行了全面重构与功能增强：数据库层面将每日清理改为每月表轮换，减少 D1 消耗，同时优化数据结构使写入减半并支持 60+ 服务器监控；新增国内四线路丢包率监控及历史图表、GPU 字段展示、服务器到期提醒、多分区磁盘统计、计费与自动续费、tags/note 字段、iOS Scriptable 小组件等功能；通知层面新增钉钉、OneBot(QQ)、飞书、Bark 支持，并重构告警模块；交互层面新增环形图显示模式、服务器导入导出、批量推送（5秒/批）、服务器参数下发，优化 Ping 统计改为中位数；安全与兼容方面加入 CSP、JWT 自动生成、跨域配置、多站点验证码登录、macOS 修复，并简化安装流程；探针与运维方面优化客户端脚本减少流量消耗，新增 Agent 自动更新（默认关闭）、GitHub 自动同步及 Workers/Agent 版本升级提示，增加 OS 图标显示，压缩定时任务从 4 个减为 2 个以规避免费额度限制，并修复月度任务导致索引丢失等严重 Bug。
+- V2.6 版本重点优化了性能与流量统计体系：将 D1 写入消耗降低 50%，新增月流量统计功能（需后台手动升级数据库并设置重置日期）及月流量校正、首页流量展示；交互层面新增自定义 Ping 设置、上报间隔配置、详情页实时网速展示，并修复启动时间获取错误、TCP/UDP 上报格式问题、网卡流量误统计及 Alpine 环境 UDP 连接数统计错误；部署兼容性方面重构 OpenWrt 安装脚本并新增 OpenRC 服务支持，同时修复方式一部署同步后丢失 API_SECRET 的问题及地图显示异常。部分修复需重新安装脚本生效，2.6.4/2.6.0 升级后务必手动升级数据库结构。
 - V2.5.0 增加客户端上报数据后，在不占用D1消耗的情况下，前端WebSocket实时刷新数据
 - V2.4.0 版本主要优化了D1读写占用，使项目消耗大大降低，以及增加了防护避免被刷。
 
@@ -72,6 +49,7 @@
 - 🔐 **Turnstile 验证**：集成 Cloudflare Turnstile 人机验证，增强 API 安全性
 - 🔑 **JWT 认证**：登录系统采用 JWT token 认证，支持自定义密钥
 - 🛡️ **CSP 安全策略**：默认限制第三方静态资源加载，可在后台按需添加可信白名单
+- 🎨 **主题商店**：后台可选择第三方主题和版本，Workers 仅反代主题 `index.html` 与 `assets/`
 - 📉 **额度查询**：后台可查询 Cloudflare D1 当日读写行数与 Workers 请求量
 - ⚡ **实时推送**：基于 Durable Objects + WebSocket，探针上报后页面立即刷新，无轮询延迟
 
@@ -96,7 +74,7 @@
 3. 点击 **Create application**
 4. 选择 Continue with GitHub（第一次使用需要连接 GitHub 账户），选择本项目
 5. Project Name填写：`cf-server-monitor`
-6. Build command 保留默认值：`npm run build`
+6. Build command 填写：`npm run build:frontend`
 7. Deploy command 保留默认值：`npx wrangler deploy`
 8. 点击 **Deploy**，成功会在底部显示`✨ Success! Build completed.`
 
@@ -208,7 +186,7 @@
 部署成功后，访问管理后台：
 
 ```
-https://你的项目名.你的子域.workers.dev/#/admin
+https://你的项目名.你的子域.workers.dev/admin
 ```
 
 - 用户名：默认admin，如果设置了环境变量 `API_USER_NAME`，则使用该值
@@ -225,7 +203,7 @@ https://你的项目名.你的子域.workers.dev/#/admin
 
 ### 在管理后台添加服务器
 
-1. 进入管理后台 `/#/admin`
+1. 进入管理后台 `/admin`
 2. 在"服务器名称"输入框填写名称
 3. 点击 **+ 添加服务器**
 4. 点击新服务器旁的 **📋** 按钮复制安装命令
@@ -321,14 +299,7 @@ irm https://你的项目.你的子域.workers.dev/cf-server-monitor.ps1 -OutFile
 
 > **V2.7.9 及以上说明**：从 V2.7.8 或更早版本升级后，请重新安装一次探针以启用参数下发能力。之后在后台修改服务器参数会自动下发到探针，无需每次重新安装；受上报间隔和缓存影响，最长约 240 秒才能看到效果。
 
-为了安全，没有提供自动升级功能，如有需要自行将升级脚本加入服务器定时任务。
-
-比如 crontab -e 中添加以下内容，每天凌晨 0 点执行升级：
-
-```bash
-# Linux
-0 0 * * * curl -sL https://你的项目.你的子域.workers.dev/install.sh | bash -s install
-```
+可以在服务器编辑配置中启用自动更新。首次启用，或修改探针上报地址/API_SECRET/开启自动更新，需要重新复制并执行该服务器的安装命令；后续自动更新会沿用本地保存的配置。
 
 </details>
 
@@ -390,12 +361,29 @@ Content Security Policy (CSP) 是一种安全层，用于检测和缓解某些�
 
 如果浏览器控制台出现 `Content Security Policy`、`Refused to load`、`Refused to execute` 等提示，通常不是资源地址失效，而是该第三方域名没有加入 CSP 白名单。
 
+Workers 环境下 CSP 会放在 HTTP Response Header 中返回，并同时设置 `X-Frame-Options: DENY`，禁止页面被其他站点 iframe 嵌入。第三方主题自带的 `<meta http-equiv="Content-Security-Policy">` 会在 Workers 反代时被移除，最终以后台配置和内置白名单生成的 Header 为准。
+
 **默认白名单**（已内置）：
 
 - `https://challenges.cloudflare.com` - Cloudflare Turnstile
 - `https://static.cloudflareinsights.com` - Cloudflare Analytics
 - `https://fonts.googleapis.com` - Google Fonts CSS
 - `https://fonts.gstatic.com` - Google Fonts 文件
+- `https://raw.githubusercontent.com` - 主题图片资源
+
+**默认 `connect-src` 白名单**（已内置）：
+
+- `https://api.iconify.design`
+- `https://api.unisvg.com`
+- `https://api.simplesvg.com`
+- `https://api.frankfurter.app`
+- `https://api.frankfurter.dev`
+- `https://open.er-api.com`
+- `https://api.ip.sb`
+- `https://ipwho.is`
+- `https://api.ipapi.is`
+- `https://ipapi.co`
+- `https://api.vore.top`
 
 **后台配置**：
 
@@ -423,6 +411,8 @@ Content Security Policy (CSP) 是一种安全层，用于检测和缓解某些�
 | `CSP_API` | 额外的 API 域名 | `https://api.example.com` |
 
 > **注意**：`API_BASE` 环境变量会自动添加到 CSP API 白名单中。
+>
+> GitHub Pages 纯静态构建无法设置 Workers 的 HTTP Header，因此仍会在构建后的 HTML 中写入 CSP meta。
 
 ### Cloudflare 额度查询（可选）
 
@@ -463,8 +453,8 @@ Content Security Policy (CSP) 是一种安全层，用于检测和缓解某些�
 ### OneBot (QQ)
 
 1. 部署 OneBot 协议实现（如 go-cqhttp、Lagrange 等），获取 HTTP API 地址
-2. 将 API 地址填入 **Bot Token** 字段，格式为 `onebot:http://127.0.0.1:3000`
-3. **Chat ID** 填入目标用户 ID（如 `123456`）或群 ID（如 `group:789012`）
+2. 将 API 地址填入 **Bot Token** 字段，格式为 `onebot:http://127.0.0.1:3000/send_private_msg?access_token=xxx`，或 `onebot:http://127.0.0.1:3000/send_group_msg?access_token=xxx`
+3. **Chat ID** 填入目标用户 ID（如 `123456`）或群 ID（如 `789012`）
 
 ### 企业微信
 
@@ -563,6 +553,19 @@ Content Security Policy (CSP) 是一种安全层，用于检测和缓解某些�
 | 自定义 `<head>` | 添加外部 CSS/JS、Meta 标签等 | 后台 → 外观 → 自定义 `<head>` |
 | 背景图片 | 自定义页面背景 | 后台 → 外观 → 背景图片 |
 | CSP 白名单 | 允许加载的第三方资源域名 | 后台 → 外观 → CSP 设置 |
+| 主题商店 | 选择第三方主题与版本 | 后台 → 主题商店 |
+
+**主题商店与 Workers 反代说明**：
+
+- 后台切换主题会保存 `theme_url`，支持主题商店地址 `https://github.com/huilang-me/CFSM-Theme-Store/tree/dist/<作者>/<主题目录>/<版本号>`，也支持手动填写独立 GitHub 主题仓库 tree 地址，例如 `https://github.com/huilang-me/cf-server-monitor-theme-emerald/tree/f334bb5e25ffbe66749a8df9eb4b099fb148e0f7`
+- `theme_url` 留空时使用项目内置默认主题
+- Workers 仅反代所选主题的 `index.html` 和 `/assets/*`，例如 `/assets/app.css` 会映射到主题仓库同版本 `assets/app.css`
+- `install.sh`、`flags/`、`os-icons/`、favicon、API、管理端等其他路径不会走主题反代，仍返回项目原有文件或接口
+- 远程主题 `index.html` 和 `assets/` 会在 Workers Cache 中缓存 1 小时；主题商店列表缓存 5 分钟
+- 切换主题会先校验远程 `index.html` 是否可访问，失败会提示错误并拒绝保存，不会自动回退成默认主题
+- 主题预览需要已登录管理员身份；未授权直接访问 `/?theme_url=...` 会返回 401，不会启用临时主题
+- 管理后台固定使用内置默认主题；第三方主题的管理入口应链接到 `/admin#admin`
+- 第三方主题详情页建议使用 `/#/server/:id`，避免和 `/admin` 的内置后台接管逻辑冲突
 
 **自定义 `<head>` 使用示例**：
 
@@ -608,7 +611,7 @@ Content Security Policy (CSP) 是一种安全层，用于检测和缓解某些�
 
 可以将特定服务器设置为对非登录用户隐藏：
 
-1. 进入管理后台 `/#/admin`
+1. 进入管理后台 `/admin`
 2. 点击服务器行右侧的 **✏️ 编辑** 按钮
 3. 勾选 **公开隐藏** 选项
 4. 点击 **保存**
@@ -675,6 +678,7 @@ CF-Server-Monitor/
 │   │   ├── admin.js            # 后台管理 API
 │   │   ├── dashboard.js        # 前台大盘 API
 │   │   ├── frontend.js         # 前端资源服务
+│   │   ├── theme.js            # 主题商店列表拉取与缓存
 │   │   └── update.js           # 数据上报处理 + 广播到 DO
 │   ├── services/
 │   │   └── notification.js     # 通知服务
@@ -683,9 +687,12 @@ CF-Server-Monitor/
 │   │   ├── cache.js            # 缓存工具
 │   │   ├── common.js           # 通用工具函数
 │   │   ├── cors.js             # CORS 处理
+│   │   ├── csp.js              # CSP Header 生成与主题 HTML CSP meta 清理
 │   │   ├── errors.js           # 错误类型与响应封装
 │   │   ├── metrics.js          # 指标处理工具
-│   │   └── settings.js         # 设置管理
+│   │   ├── serverBilling.js    # 服务器计费字段规范化
+│   │   ├── settings.js         # 设置管理
+│   │   └── version.js          # 版本检查
 │   └── frontend/               # Vue 3 前端应用
 │       ├── App.vue             # 根组件
 │       ├── main.js             # 前端入口
@@ -707,8 +714,13 @@ CF-Server-Monitor/
 │       │   ├── api.js          # API 请求封装 + WebSocket 客户端
 │       │   ├── config.js       # 前端运行时配置
 │       │   ├── constants.js    # 前端常量
+│       │   ├── displayMode.js  # 前端显示模式规范化
 │       │   ├── http.js         # HTTP 请求封装
 │       │   ├── i18n.js         # 国际化配置
+│       │   ├── osIcon.js       # 系统图标匹配
+│       │   ├── pingNode.js     # Ping 节点校验
+│       │   ├── playback.js     # WebSocket 回放节流
+│       │   ├── server.js       # 前端服务器指标与计费显示工具
 │       │   ├── time.js         # 时间格式化工具
 │       │   └── turnstile.js    # Turnstile 共享工具
 │       └── views/              # 页面视图
@@ -743,10 +755,8 @@ CF-Server-Monitor/
 ├── package-lock.json           # npm 依赖锁定文件
 ├── vite.config.js              # Vite 配置
 ├── wrangler.toml               # Wrangler 本地开发配置
-├── API.md                      # 后端 API 文档
-├── AGENT_CONFIG.md             # 探针配置下发说明
-├── develop.md                  # 开发与架构说明
-├── theme-develop.md            # 前端主题开发文档
+├── API.md                      # 全局 API 文档
+├── theme-develop.md            # 第三方主题开发 API 文档
 ├── todo.md                     # 待办事项列表
 └── .github/
     └── workflows/
@@ -800,7 +810,12 @@ Cloudflare D1 免费版提供 5GB 存储和 5M 读取行/日、100K 写入行/�
 
 **Q: 地区并列显示港澳台和国家**
 
-为了方便用户查看，前端并列显示港澳台和国家，但是旗帜都统一是中国国旗，后端返回的是region字段，这里是输出国家和地区，而不是国家，地图符合中华人民共和国自然资源部标准地图制作（审图号：GS(2023)2767 号）。
+为了方便用户查看，前端并列显示港澳台和国家，但是旗帜都统一显示五星红旗，后端返回的是region字段，这里是输出国家和地区，而不是国家，地图符合中华人民共和国自然资源部标准地图制作（审图号：GS(2023)2767 号）。
+
+**Q: 国内服务器无法上报**
+
+1. CF有托管域名的话，绑定一个域名可用解决绝大多数上报问题
+2. 如果没有域名可以绑定，或者绑定域名还是无法访问，可以改本地host解决，本地ping一个cf的cdn ip，改host解析. `echo [ip] [你的项目名.你的子域.workers.dev] | sudo tee -a /etc/hosts`
 
 </details>
 

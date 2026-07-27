@@ -12,9 +12,15 @@ import { isValidTrafficCorrection, validateAgentConfigInput, validatePingNode } 
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../utils/serverBilling.js';
 
 const PING_NODE_FIELDS = ['custom_ct', 'custom_cu', 'custom_cm', 'custom_bd'];
+const THEME_PREVIEW_AUTH_COOKIE = 'cfsm_theme_preview_auth';
+const THEME_PREVIEW_AUTH_TTL = 600;
 
 function normalizeBooleanFlag(value) {
   return value === true || value === 1 || value === '1' || value === 'true' ? '1' : '0';
+}
+
+function normalizeServerRegion(value) {
+  return String(value || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '').slice(0, 16);
 }
 
 function normalizeServerBillingData(data = {}) {
@@ -70,6 +76,7 @@ function normalizeCspOrigin(value) {
 function normalizePingNodeFields(source, fields = PING_NODE_FIELDS) {
   const values = {};
   for (const field of fields) {
+    if (source?.[field] === undefined) continue;
     const result = validatePingNode(source?.[field]);
     if (!result.valid) {
       return { valid: false, field };
@@ -77,6 +84,97 @@ function normalizePingNodeFields(source, fields = PING_NODE_FIELDS) {
     values[field] = result.value;
   }
   return { valid: true, values };
+}
+
+function hasAppearanceInput(settings) {
+  if (settings.appearance_options !== undefined) return true;
+  return APPEARANCE_FIELDS
+    .filter(field => field !== 'theme_options')
+    .some(field => settings[field] !== undefined);
+}
+
+function extractBearerToken(request) {
+  const authHeader = request.headers.get('Authorization') || '';
+  const parts = authHeader.trim().split(/\s+/);
+  return parts[0] === 'Bearer' && parts[1] ? parts[1] : '';
+}
+
+function buildThemePreviewUrl(request, themeUrl) {
+  const previewUrl = new URL('/', request.url);
+  previewUrl.searchParams.set('theme_url', themeUrl);
+  return previewUrl.toString();
+}
+
+function buildThemePreviewAuthCookie(request, token) {
+  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
+  return `${THEME_PREVIEW_AUTH_COOKIE}=${encodeURIComponent(token)}; Max-Age=${THEME_PREVIEW_AUTH_TTL}; Path=/; HttpOnly; SameSite=Lax${secure}`;
+}
+
+function buildClearThemePreviewAuthCookie(request) {
+  const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
+  return `${THEME_PREVIEW_AUTH_COOKIE}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secure}`;
+}
+
+function normalizeThemeUrl(value) {
+  if (value === undefined) return undefined;
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== 'https:') return null;
+    if (url.hostname !== 'github.com') return null;
+    if (url.username || url.password || url.search || url.hash) return null;
+
+    const parts = url.pathname.split('/').filter(Boolean);
+    const ref = parts[3];
+    if (
+      parts.length < 4 ||
+      parts[2] !== 'tree' ||
+      !/^[A-Za-z0-9._-]+$/.test(parts[0]) ||
+      !/^[A-Za-z0-9._-]+$/.test(parts[1]) ||
+      !/^[A-Za-z0-9._-]+$/.test(ref) ||
+      parts.some(part => part === '.' || part === '..' || /[%\\]/.test(part))
+    ) {
+      return null;
+    }
+
+    return `https://github.com/${parts.join('/')}`;
+  } catch (_) {
+    return null;
+  }
+}
+
+function getThemeRawIndexUrl(themeUrl) {
+  const normalized = normalizeThemeUrl(themeUrl);
+  if (!normalized) return '';
+
+  const url = new URL(normalized);
+  const parts = url.pathname.split('/').filter(Boolean);
+  const owner = parts[0];
+  const repo = parts[1];
+  const ref = parts[3];
+  const themePath = [owner, repo, ref, ...parts.slice(4)]
+    .map(part => encodeURIComponent(part))
+    .join('/');
+  return `https://raw.githubusercontent.com/${themePath}/index.html`;
+}
+
+async function validateThemeUrlAvailable(themeUrl) {
+  if (!themeUrl) return true;
+
+  const rawIndexUrl = getThemeRawIndexUrl(themeUrl);
+  if (!rawIndexUrl) return false;
+
+  try {
+    const res = await fetch(rawIndexUrl, {
+      method: 'GET',
+      headers: { 'User-Agent': 'CFSM-Theme-Validate' }
+    });
+    return res.ok;
+  } catch (_) {
+    return false;
+  }
 }
 
 async function deleteServer(db, id) {
@@ -267,6 +365,14 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       }
     }
 
+    if (data.action === 'clear_theme_preview_auth') {
+      return createSuccessResponse({
+        success: true
+      }, {
+        'Set-Cookie': buildClearThemePreviewAuthCookie(request)
+      });
+    }
+
     if (!await checkAuth(request, env, sys)) {
       return simpleAuthResponse();
     }
@@ -278,6 +384,27 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
         success: true,
         settings: safeSettings,
         api_secret: env.API_SECRET
+      });
+    }
+    else if (data.action === 'start_theme_preview') {
+      const normalizedThemeUrl = normalizeThemeUrl(data.theme_url);
+      if (!normalizedThemeUrl) {
+        return createBadRequestResponse('invalidThemeUrl');
+      }
+      if (!await validateThemeUrlAvailable(normalizedThemeUrl)) {
+        return createBadRequestResponse('invalidThemeUrl');
+      }
+
+      const token = extractBearerToken(request);
+      if (!token) {
+        return simpleAuthResponse();
+      }
+
+      return createSuccessResponse({
+        success: true,
+        preview_url: buildThemePreviewUrl(request, normalizedThemeUrl)
+      }, {
+        'Set-Cookie': buildThemePreviewAuthCookie(request, token)
       });
     }
     else if (data.action === 'list') {
@@ -298,7 +425,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       
       const serversWithStatus = servers.map(server => {
         const latestMetrics = latestMetricsMap.get(server.id);
-        const item = { ...server };
+        const item = { ...server, region_override: server.region || '' };
         let isOnline = false;
         
         if (latestMetrics) {
@@ -379,6 +506,13 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
     }
     else if (data.action === 'save_settings') {
       const settings = data.settings || {};
+      const normalizedThemeUrl = normalizeThemeUrl(settings.theme_url);
+      if (normalizedThemeUrl === null) {
+        return createBadRequestResponse('invalidThemeUrl');
+      }
+      if (normalizedThemeUrl && !await validateThemeUrlAvailable(normalizedThemeUrl)) {
+        return createBadRequestResponse('invalidThemeUrl');
+      }
 
       // 如果 turnstile_enabled 或 turnstile_login_enabled 开启，验证 turnstile_site_key 和 turnstile_secret_key 都不为空
       if (settings.turnstile_enabled === 'true' || settings.turnstile_enabled === true || settings.turnstile_login_enabled === 'true' || settings.turnstile_login_enabled === true) {
@@ -411,30 +545,34 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
         return createBadRequestResponse('invalidThemeOptionsFormat');
       }
 
-      const nestedAppearanceOptions = settings.appearance_options || {};
+      const shouldSaveAppearanceOptions = hasAppearanceInput(settings);
       const appearanceOptions = {};
-      for (const field of APPEARANCE_FIELDS) {
-        const value = field === 'theme_options' ? nestedAppearanceOptions.theme_options : settings[field];
-        if (value !== undefined) {
-          // CSP 字段格式校验：只允许 https:// 开头的域名，逗号分隔
-          if (field === 'csp_static' || field === 'csp_api') {
-            appearanceOptions[field] = sanitizeCspDomains(value);
-          } else if (field === 'display_mode') {
-            appearanceOptions[field] = normalizeDisplayMode(value);
-          } else if (field === 'theme_options') {
-            if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-              return createBadRequestResponse('invalidThemeOptionsFormat');
+
+      if (shouldSaveAppearanceOptions) {
+        const nestedAppearanceOptions = settings.appearance_options || {};
+        for (const field of APPEARANCE_FIELDS) {
+          const value = field === 'theme_options' ? nestedAppearanceOptions.theme_options : settings[field];
+          if (value !== undefined) {
+            // CSP 字段格式校验：只允许 https:// 开头的域名，逗号分隔
+            if (field === 'csp_static' || field === 'csp_api') {
+              appearanceOptions[field] = sanitizeCspDomains(value);
+            } else if (field === 'display_mode') {
+              appearanceOptions[field] = normalizeDisplayMode(value);
+            } else if (field === 'theme_options') {
+              if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+                return createBadRequestResponse('invalidThemeOptionsFormat');
+              }
+              appearanceOptions[field] = value;
+            } else {
+              appearanceOptions[field] = value;
             }
-            appearanceOptions[field] = value;
-          } else {
-            appearanceOptions[field] = value;
           }
         }
+        await env.DB.prepare(
+          'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
+        ).bind('appearance_options', JSON.stringify(appearanceOptions)).run();
+        clearAppearanceSettingsCache();
       }
-      await env.DB.prepare(
-        'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
-      ).bind('appearance_options', JSON.stringify(appearanceOptions)).run();
-      clearAppearanceSettingsCache();
 
       const siteOptions = {};
       for (const field of SITE_FIELDS) {
@@ -447,13 +585,15 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
             siteOptions[field] = pingNodes.values[field];
           } else if (field === 'tg_notify') {
             siteOptions[field] = tgNotify;
+          } else if (field === 'theme_url') {
+            siteOptions[field] = normalizedThemeUrl;
           } else {
             siteOptions[field] = settings[field];
           }
         }
       }
       await saveSiteOptions(env.DB, siteOptions);
-      Object.assign(sys, appearanceOptions, siteOptions);
+      Object.assign(sys, shouldSaveAppearanceOptions ? appearanceOptions : {}, siteOptions);
       return createSuccessResponse({
         success: true,
         message: 'updateSuccess'
@@ -467,6 +607,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       
       const id = crypto.randomUUID();
       const group = data.server_group || 'Default';
+      const region = normalizeServerRegion(data.region);
 
       const { max_order } = await env.DB.prepare('SELECT COALESCE(MAX(sort_order), -1) as max_order FROM servers').first();
       const sortOrder = (max_order || 0) + 1;
@@ -475,9 +616,9 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
 
       await env.DB.prepare(`
         INSERT INTO servers
-        (id, name, server_group, sort_order, history_partition_id, timestamp)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).bind(id, name, group, sortOrder, historyPartitionId, Date.now()).run();
+        (id, name, server_group, region, sort_order, history_partition_id, timestamp)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).bind(id, name, group, region, sortOrder, historyPartitionId, Date.now()).run();
       
       clearServersListCache();
       
@@ -523,7 +664,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       });
     }
     else if (data.action === 'edit') {
-      const { id, name, server_group, tags, note, price, billing_cycle, auto_renewal, currency, expire_date, traffic_limit, traffic_calc_type, reset_day, collect_interval, report_interval, auto_update, custom_ct, custom_cu, custom_cm, custom_bd, rx_correction, tx_correction, offline_notify_disabled, is_hidden } = data;
+      const { id, name, server_group, region, tags, note, price, billing_cycle, auto_renewal, currency, expire_date, traffic_limit, traffic_calc_type, reset_day, collect_interval, report_interval, auto_update, custom_ct, custom_cu, custom_cm, custom_bd, rx_correction, tx_correction, offline_notify_disabled, is_hidden } = data;
       if (!id || !isValidUUID(id)) {
         return createBadRequestResponse('invalidServerId');
       }
@@ -570,11 +711,12 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
       try {
         await env.DB.prepare(`
           UPDATE servers
-          SET name = ?, server_group = ?, tags = ?, note = ?, price = ?, billing_cycle = ?, auto_renewal = ?, currency = ?, expire_date = ?, traffic_limit = ?, traffic_calc_type = ?, reset_day = ?, collect_interval = ?, report_interval = ?, auto_update = ?, custom_ct = ?, custom_cu = ?, custom_cm = ?, custom_bd = ?, rx_correction = ?, tx_correction = ?, offline_notify_disabled = ?, is_hidden = ?
+          SET name = ?, server_group = ?, region = ?, tags = ?, note = ?, price = ?, billing_cycle = ?, auto_renewal = ?, currency = ?, expire_date = ?, traffic_limit = ?, traffic_calc_type = ?, reset_day = ?, collect_interval = ?, report_interval = ?, auto_update = ?, custom_ct = ?, custom_cu = ?, custom_cm = ?, custom_bd = ?, rx_correction = ?, tx_correction = ?, offline_notify_disabled = ?, is_hidden = ?
           WHERE id = ?
         `).bind(
           name || '',
           server_group || 'Default',
+          normalizeServerRegion(region),
           safeTags,
           safeNote,
           billingData.price,
@@ -706,16 +848,17 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null)
 
         try {
           await env.DB.prepare(`
-            INSERT INTO servers (id, name, server_group, tags, note, price, billing_cycle, auto_renewal,
+            INSERT INTO servers (id, name, server_group, region, tags, note, price, billing_cycle, auto_renewal,
               currency, expire_date,
               traffic_limit, traffic_calc_type, reset_day, collect_interval, report_interval,
               auto_update, custom_ct, custom_cu, custom_cm, custom_bd, rx_correction, tx_correction,
               offline_notify_disabled, is_hidden, sort_order, history_partition_id, timestamp)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           `).bind(
             server.id,
             server.name || '',
             server.server_group || 'Default',
+            normalizeServerRegion(server.region),
             server.tags || '',
             server.note || '',
             billingData.price,

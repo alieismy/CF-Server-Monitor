@@ -24,6 +24,13 @@
         </div>
       </div>
 
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label class="form-label">{{ trans.region }}</label>
+          <input type="text" name="edit_region" autocomplete="off" v-model.trim="editForm.region" class="form-input" placeholder="e.g. HK">
+        </div>
+      </div>
+
       <div class="form-group">
         <label class="form-label">{{ trans.note }}</label>
         <textarea name="edit_note" autocomplete="off" v-model="editForm.note" class="form-textarea" rows="2" :placeholder="trans.notePlaceholder"></textarea>
@@ -198,7 +205,7 @@
 import { computed, watch } from 'vue'
 import { PING_NODE_FIELDS, validatePingNode } from '../../../utils/pingNode.js'
 import { currentLang } from '../../../utils/i18n.js'
-import { BILLING_CYCLES, CURRENCY_OPTIONS, normalizePrice, renewExpireDateIfNeeded } from '../../../../utils/serverBilling.js'
+import { BILLING_CYCLES, CURRENCY_OPTIONS, normalizePrice, renewExpireDateIfNeeded } from '../../../utils/server.js'
 
 const editForm = defineModel('editForm', { type: Object, required: true })
 

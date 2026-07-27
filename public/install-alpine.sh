@@ -1,6 +1,6 @@
 #!/bin/sh
 # ==============================================================================
-# V1.3.2
+# V1.3.4
 # CF-Server-Monitor 安装/卸载脚本 (Alpine Linux 兼容版)
 # 支持: Alpine Linux (OpenRC / 裸机 / Docker 容器)
 # Fixes: 1. 独立协程无 wait 阻塞 2. 原子化原子覆盖 3. 兼容 OpenRC/无 init 场景
@@ -10,7 +10,7 @@
 
 set -eu
 
-AGENT_VERSION="1.3.2"
+AGENT_VERSION="1.3.4"
 
 # 路径定义（配置文件系统）
 CONFIG_DIR="/etc/config/cf-probe"
@@ -768,34 +768,93 @@ json_string_or_null() {
     fi
 }
 
+normalize_gpu_name() {
+    local gpu_name="${1:-}"
+    case "${gpu_name}" in
+        *Intel*|*intel*|*INTEL*)
+            case "${gpu_name}" in
+                *Arc*|*ARC*|*arc*) printf '%s' "${gpu_name}" ;;
+                *) printf '%s' "Intel Integrated Graphics" ;;
+            esac
+            ;;
+        *) printf '%s' "${gpu_name}" ;;
+    esac
+}
+
 get_gpu_metrics() {
-    local gpu_usage=""
-    local gpu_info=""
-    local line=""
+    local gpu_info_array=null
+    local gpu_count=0
 
     if command -v nvidia-smi >/dev/null 2>&1; then
-        line=$(nvidia-smi --query-gpu=name,utilization.gpu --format=csv,noheader,nounits 2>/dev/null | head -n 1 || true)
-        if [ -n "${line}" ]; then
-            gpu_info=$(echo "${line}" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1}')
-            gpu_usage=$(echo "${line}" | awk -F',' '{gsub(/[^0-9.]/, "", $2); print $2}')
+        local nvidia_output
+        nvidia_output=$(nvidia-smi --query-gpu=index,name,utilization.gpu --format=csv,noheader,nounits 2>/dev/null || true)
+        if [ -n "${nvidia_output}" ]; then
+            while IFS= read -r nvidia_line; do
+                [ -z "${nvidia_line}" ] && continue
+                local gpu_idx gpu_name gpu_util gpu_name_escaped
+                gpu_idx=$(echo "${nvidia_line}" | awk -F',' '{gsub(/^[ \t]+|[ \t]+$/, "", $1); print $1}')
+                gpu_util=$(echo "${nvidia_line}" | awk -F',' '{gsub(/[^0-9.]/, "", $NF); print $NF}')
+                gpu_name=$(echo "${nvidia_line}" | sed 's/^[^,]*,//; s/,[^,]*$//' | sed 's/^[ \t]*//;s/[ \t]*$//')
+                case "${gpu_util}" in ''|*[!0-9.]*|*.*.*) gpu_util="null" ;; esac
+                gpu_name_escaped=$(escape_json "${gpu_name}")
+                if [ "${gpu_info_array}" != "null" ]; then
+                    gpu_info_array="${gpu_info_array},{\"name\":\"${gpu_name_escaped}\",\"info\":${gpu_util},\"id\":\"${gpu_idx}\"}"
+                else
+                    gpu_info_array="{\"name\":\"${gpu_name_escaped}\",\"info\":${gpu_util},\"id\":\"${gpu_idx}\"}"
+                fi
+                gpu_count=$((gpu_count + 1))
+            done <<EOF
+${nvidia_output}
+EOF
         fi
     elif command -v rocm-smi >/dev/null 2>&1; then
-        gpu_info=$(rocm-smi --showproductname 2>/dev/null | awk -F: '/Card series|Card model|Product Name/{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}' || true)
-        gpu_usage=$(rocm-smi --showuse 2>/dev/null | awk -F: '/GPU use/{gsub(/[^0-9.]/, "", $2); print $2; exit}' || true)
+        local rocm_names rocm_utils
+        rocm_names=$(rocm-smi --showproductname 2>/dev/null | awk -F: '/Card series|Card model|Product Name/{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2}' || true)
+        rocm_utils=$(rocm-smi --showuse 2>/dev/null | awk -F: '/GPU use/{gsub(/[^0-9.]/, "", $2); print $2}' || true)
+        local idx=0
+        while IFS= read -r rname; do
+            [ -z "${rname}" ] && continue
+            local rutil rname_escaped
+            rutil=$(echo "${rocm_utils}" | sed -n "$((idx + 1))p")
+            case "${rutil}" in ''|*[!0-9.]*|*.*.*) rutil="null" ;; esac
+            rname_escaped=$(escape_json "${rname}")
+            if [ "${gpu_info_array}" != "null" ]; then
+                gpu_info_array="${gpu_info_array},{\"name\":\"${rname_escaped}\",\"info\":${rutil},\"id\":\"${idx}\"}"
+            else
+                gpu_info_array="{\"name\":\"${rname_escaped}\",\"info\":${rutil},\"id\":\"${idx}\"}"
+            fi
+            idx=$((idx + 1))
+            gpu_count=$((gpu_count + 1))
+        done <<EOF
+${rocm_names}
+EOF
     fi
 
-    if [ -z "${gpu_info}" ] && command -v lspci >/dev/null 2>&1; then
-        gpu_info=$(lspci 2>/dev/null | awk '/VGA compatible controller|3D controller|Display controller/ && /NVIDIA|AMD|ATI|Radeon|Intel.*(Graphics|Arc|UHD|Iris)/{sub(/^[^:]*: /, ""); print; exit}' || true)
+    if [ "${gpu_count}" -eq 0 ] && command -v lspci >/dev/null 2>&1; then
+        local lspci_gpus
+        lspci_gpus=$(lspci 2>/dev/null | awk '/VGA compatible controller|3D controller|Display controller/ && /NVIDIA|AMD|ATI|Radeon|Intel.*(Graphics|Arc|UHD|Iris)/{sub(/^.*: /, ""); print}' || true)
+        local lidx=0
+        while IFS= read -r lgpu; do
+            [ -z "${lgpu}" ] && continue
+            lgpu=$(normalize_gpu_name "${lgpu}")
+            local lgpu_escaped
+            lgpu_escaped=$(escape_json "${lgpu}")
+            if [ "${gpu_info_array}" != "null" ]; then
+                gpu_info_array="${gpu_info_array},{\"name\":\"${lgpu_escaped}\",\"info\":0,\"id\":\"${lidx}\"}"
+            else
+                gpu_info_array="{\"name\":\"${lgpu_escaped}\",\"info\":0,\"id\":\"${lidx}\"}"
+            fi
+            lidx=$((lidx + 1))
+            gpu_count=$((gpu_count + 1))
+        done <<EOF
+${lspci_gpus}
+EOF
     fi
 
-    case "${gpu_usage}" in
-        ''|*[!0-9.]*|*.*.*) gpu_usage="null" ;;
-    esac
-
-    if [ -n "${gpu_info}" ]; then
-        printf '%s\n%s\n' "${gpu_usage:-null}" "$(json_string_or_null "${gpu_info}")"
+    if [ "${gpu_count}" -gt 0 ]; then
+        printf '[%s]' "${gpu_info_array}"
     else
-        printf 'null\nnull\n'
+        printf 'null'
     fi
 }
 
@@ -986,6 +1045,19 @@ PREV_CPU_IDLE=$(echo "$CPU_STAT" | awk '{print $2}'); PREV_CPU_IDLE=${PREV_CPU_I
 
 PREV_LOOP_TIME=$(date +%s)
 
+# 缓存间隔定义
+DISK_CHECK_INTERVAL=120          # 硬盘检测：2分钟
+LAST_DISK_CHECK=0
+# 状态检测：固定60秒
+STATUS_CHECK_INTERVAL=60
+LAST_STATUS_CHECK=0
+
+# set -u 安全初始化：所有缓存变量在循环前初始化为默认值
+DISK_TOTAL=0; DISK_USED=0
+OS=""; ARCH=""; KERNEL_VERSION=""; BOOT_TIME=0; CPU_INFO=""; CPU_CORES=1
+GPU_INFO_VALUE="null"; LOAD_AVG="0 0 0"; PROCESSES=0; TCP_CONN=0; UDP_CONN=0
+RX_MONTHLY=0; TX_MONTHLY=0
+
 echo "[INFO] CF-Server-Monitor Probe Engine Started Successfully."
 
 # 核心架构升级：在这里脱离主循环，静默启动常驻网络 Worker 协程，无 wait 干扰
@@ -1023,11 +1095,15 @@ while true; do
     SWAP_USED=$(((SWAP_TOTAL_KB - SWAP_FREE_KB) / 1024))
     [ "${SWAP_USED}" -lt 0 ] && SWAP_USED=0
 
-    DISK_INFO=$(df -P / 2>/dev/null | tail -n1 || echo "")
-    DISK_TOTAL=0; DISK_USED=0
-    if [ -n "${DISK_INFO}" ]; then
-        DISK_TOTAL=$(echo "${DISK_INFO}" | awk '{print int($2/1024)}')
-        DISK_USED=$(echo "${DISK_INFO}" | awk '{print int($3/1024)}')
+    # 磁盘检测（缓存机制：每2分钟检测一次）
+    if [ $((LOOP_START_TIME - LAST_DISK_CHECK)) -ge "${DISK_CHECK_INTERVAL}" ] || [ "${LAST_DISK_CHECK}" -eq 0 ]; then
+        DISK_INFO=$(df -P / 2>/dev/null | tail -n1 || echo "")
+        DISK_TOTAL=0; DISK_USED=0
+        if [ -n "${DISK_INFO}" ]; then
+            DISK_TOTAL=$(echo "${DISK_INFO}" | awk '{print int($2/1024)}')
+            DISK_USED=$(echo "${DISK_INFO}" | awk '{print int($3/1024)}')
+        fi
+        LAST_DISK_CHECK="${LOOP_START_TIME}"
     fi
 
     CPU_STAT=$(get_cpu_stat)
@@ -1044,61 +1120,71 @@ while true; do
     PREV_CPU_TOTAL=${CPU_TOTAL_NOW}
     PREV_CPU_IDLE=${CPU_IDLE_NOW}
 
-    if [ -f /etc/os-release ]; then
-        OS_RAW=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"' | tr -d "'")
-    else
-        OS_RAW=$(uname -srm)
-    fi
-    OS=${OS_RAW:-"Alpine Linux"}
-    ARCH=$(uname -m)
-    BOOT_TIME=$(awk '$1=="btime"{print $2}' /proc/stat 2>/dev/null)
-    if [ -n "${BOOT_TIME:-}" ]; then
-        BOOT_TIME=$((BOOT_TIME * 1000))
-    else
-        uptime_sec=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
-        now_sec=$(date +%s)
-
-        if [ "$uptime_sec" -gt 0 ] 2>/dev/null; then
-            BOOT_TIME=$(( (now_sec - uptime_sec) * 1000 ))
-        else
-            BOOT_TIME=0
-        fi
-    fi
-    CPU_INFO=$(grep -m 1 'model name' /proc/cpuinfo 2>/dev/null | awk -F: '{print $2}' | xargs || echo "")
-    [ -z "${CPU_INFO}" ] && CPU_INFO=${ARCH}
-    CPU_CORES=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo "1")
-    GPU_METRICS=$(get_gpu_metrics)
-    GPU=$(echo "$GPU_METRICS" | awk 'NR==1{print $1}'); GPU=${GPU:-null}
-    GPU_INFO_VALUE=$(echo "$GPU_METRICS" | awk 'NR==2{print}')
-    [ -z "${GPU_INFO_VALUE}" ] && GPU_INFO_VALUE="null"
-    LOAD_AVG=$(cat /proc/loadavg 2>/dev/null | awk '{print $1, $2, $3}' || echo "0 0 0")
-    PROCESSES=$(ps -e 2>/dev/null | wc -l || echo 0)
-
-    # ---------------- TCP ----------------
-    TCP_CONN=""
-    if command -v ss >/dev/null 2>&1; then
-        TCP_CONN=$(ss -H -ant state established 2>/dev/null | wc -l)
-    else
-        TCP_CONN=$(awk 'NR>1 && $4=="01"{c++} END{print c+0}' /proc/net/tcp 2>/dev/null)
-    fi
-    TCP_CONN=$(printf "%s" "${TCP_CONN:-0}" | tr -d '\r\n ')
-
-    # ---------------- UDP ----------------
-    UDP_CONN=""
-    if command -v ss >/dev/null 2>&1; then
-        UDP_CONN=$(ss -H -anu 2>/dev/null | wc -l)
-    else
-        UDP_CONN=$(awk 'NR>1{c++} END{print c+0}' /proc/net/udp 2>/dev/null)
-    fi
-    UDP_CONN=$(printf "%s" "${UDP_CONN:-0}" | tr -d '\r\n ')
-
+    # 获取网络字节数（网速计算需要每次执行，流量统计也需要）
     NET_STAT=$(get_net_bytes)
     RX_NOW=$(echo "$NET_STAT" | awk '{print $1}'); RX_NOW=${RX_NOW:-0}
     TX_NOW=$(echo "$NET_STAT" | awk '{print $2}'); TX_NOW=${TX_NOW:-0}
-    
-    MONTHLY_TRAFFIC=$(calc_monthly_traffic "$RX_NOW" "$TX_NOW")
-    RX_MONTHLY=$(echo "$MONTHLY_TRAFFIC" | awk '{print $1}')
-    TX_MONTHLY=$(echo "$MONTHLY_TRAFFIC" | awk '{print $2}')
+
+    # 静态信息（仅首次运行时获取，运行期间不会变化）
+    if [ "${LAST_STATUS_CHECK}" -eq 0 ]; then
+        if [ -f /etc/os-release ]; then
+            OS_RAW=$(grep -E '^PRETTY_NAME=' /etc/os-release | cut -d= -f2 | tr -d '"' | tr -d "'")
+        else
+            OS_RAW=$(uname -srm)
+        fi
+        OS=${OS_RAW:-"Alpine Linux"}
+        ARCH=$(uname -m)
+        KERNEL_VERSION=$(uname -r 2>/dev/null || echo "")
+        BOOT_TIME=$(awk '$1=="btime"{print $2}' /proc/stat 2>/dev/null)
+        if [ -n "${BOOT_TIME:-}" ]; then
+            BOOT_TIME=$((BOOT_TIME * 1000))
+        else
+            uptime_sec=$(awk '{print int($1)}' /proc/uptime 2>/dev/null || echo 0)
+            now_sec=$(date +%s)
+
+            if [ "$uptime_sec" -gt 0 ] 2>/dev/null; then
+                BOOT_TIME=$(( (now_sec - uptime_sec) * 1000 ))
+            else
+                BOOT_TIME=0
+            fi
+        fi
+        CPU_INFO=$(grep -m 1 'model name' /proc/cpuinfo 2>/dev/null | awk -F: '{print $2}' | xargs || echo "")
+        [ -z "${CPU_INFO}" ] && CPU_INFO=${ARCH}
+        CPU_CORES=$(nproc 2>/dev/null || grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo "1")
+    fi
+
+    # 状态检测缓存：进程数、连接数、GPU使用率、负载、当月累计流量（每STATUS_CHECK_INTERVAL检测一次）
+    if [ $((LOOP_START_TIME - LAST_STATUS_CHECK)) -ge "${STATUS_CHECK_INTERVAL}" ] || [ "${LAST_STATUS_CHECK}" -eq 0 ]; then
+        GPU_INFO_VALUE=$(get_gpu_metrics)
+        [ -z "${GPU_INFO_VALUE}" ] && GPU_INFO_VALUE="null"
+        LOAD_AVG=$(cat /proc/loadavg 2>/dev/null | awk '{print $1, $2, $3}' || echo "0 0 0")
+        PROCESSES=$(ps -e 2>/dev/null | wc -l || echo 0)
+
+        # ---------------- TCP ----------------
+        TCP_CONN=""
+        if command -v ss >/dev/null 2>&1; then
+            TCP_CONN=$(ss -H -ant state established 2>/dev/null | wc -l)
+        else
+            TCP_CONN=$(awk 'NR>1 && $4=="01"{c++} END{print c+0}' /proc/net/tcp 2>/dev/null)
+        fi
+        TCP_CONN=$(printf "%s" "${TCP_CONN:-0}" | tr -d '\r\n ')
+
+        # ---------------- UDP ----------------
+        UDP_CONN=""
+        if command -v ss >/dev/null 2>&1; then
+            UDP_CONN=$(ss -H -anu 2>/dev/null | wc -l)
+        else
+            UDP_CONN=$(awk 'NR>1{c++} END{print c+0}' /proc/net/udp 2>/dev/null)
+        fi
+        UDP_CONN=$(printf "%s" "${UDP_CONN:-0}" | tr -d '\r\n ')
+
+        # 计算当月累计流量
+        MONTHLY_TRAFFIC=$(calc_monthly_traffic "$RX_NOW" "$TX_NOW")
+        RX_MONTHLY=$(echo "$MONTHLY_TRAFFIC" | awk '{print $1}')
+        TX_MONTHLY=$(echo "$MONTHLY_TRAFFIC" | awk '{print $2}')
+
+        LAST_STATUS_CHECK="${LOOP_START_TIME}"
+    fi
     
     TIME_DELTA=$((LOOP_START_TIME - PREV_LOOP_TIME))
     [ "${TIME_DELTA}" -le 0 ] && TIME_DELTA=${ACTIVE_INTERVAL}
@@ -1125,6 +1211,7 @@ while true; do
     EOS=$(escape_json "${OS}")
     EARCH=$(escape_json "${ARCH}")
     ECPU=$(escape_json "${CPU_INFO}")
+    EKERNEL=$(escape_json "${KERNEL_VERSION}")
     PING_CT_JSON=$(json_probe_value "$CT_NODE" "$PING_CT")
     PING_CU_JSON=$(json_probe_value "$CU_NODE" "$PING_CU")
     PING_CM_JSON=$(json_probe_value "$CM_NODE" "$PING_CM")
@@ -1135,7 +1222,7 @@ while true; do
     LOSS_BD_JSON=$(json_probe_value "$BD_NODE" "$LOSS_BD")
 
     METRICS_JSON=$(cat <<EOF
-{"cpu":"$CPU","ram_total":"$RAM_TOTAL","ram_used":"$RAM_USED","swap_total":"$SWAP_TOTAL","swap_used":"$SWAP_USED","disk_total":"$DISK_TOTAL","disk_used":"$DISK_USED","load_avg":"$LOAD_AVG","boot_time":"$BOOT_TIME","net_rx":"$RX_NOW","net_tx":"$TX_NOW","net_rx_monthly":"$RX_MONTHLY","net_tx_monthly":"$TX_MONTHLY","net_in_speed":"$RX_SPEED","net_out_speed":"$TX_SPEED","os":"$EOS","arch":"$EARCH","cpu_info":"$ECPU","cpu_cores":"$CPU_CORES","gpu":$GPU,"gpu_info":$GPU_INFO_VALUE,"processes":"$PROCESSES","tcp_conn":"$TCP_CONN","udp_conn":"$UDP_CONN","ip_v4":"$IPV4","ip_v6":"$IPV6","ping_ct":$PING_CT_JSON,"ping_cu":$PING_CU_JSON,"ping_cm":$PING_CM_JSON,"ping_bd":$PING_BD_JSON,"loss_ct":$LOSS_CT_JSON,"loss_cu":$LOSS_CU_JSON,"loss_cm":$LOSS_CM_JSON,"loss_bd":$LOSS_BD_JSON}
+{"cpu":"$CPU","ram_total":"$RAM_TOTAL","ram_used":"$RAM_USED","swap_total":"$SWAP_TOTAL","swap_used":"$SWAP_USED","disk_total":"$DISK_TOTAL","disk_used":"$DISK_USED","load_avg":"$LOAD_AVG","boot_time":"$BOOT_TIME","net_rx":"$RX_NOW","net_tx":"$TX_NOW","net_rx_monthly":"$RX_MONTHLY","net_tx_monthly":"$TX_MONTHLY","net_in_speed":"$RX_SPEED","net_out_speed":"$TX_SPEED","os":"$EOS","arch":"$EARCH","kernel_version":"$EKERNEL","cpu_info":"$ECPU","cpu_cores":"$CPU_CORES","gpu_info":$GPU_INFO_VALUE,"processes":"$PROCESSES","tcp_conn":"$TCP_CONN","udp_conn":"$UDP_CONN","ip_v4":"$IPV4","ip_v6":"$IPV6","ping_ct":$PING_CT_JSON,"ping_cu":$PING_CU_JSON,"ping_cm":$PING_CM_JSON,"ping_bd":$PING_BD_JSON,"loss_ct":$LOSS_CT_JSON,"loss_cu":$LOSS_CU_JSON,"loss_cm":$LOSS_CM_JSON,"loss_bd":$LOSS_BD_JSON}
 EOF
 )
     if [ "$COLLECT_INTERVAL" -gt 0 ]; then

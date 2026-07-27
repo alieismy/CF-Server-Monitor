@@ -92,6 +92,11 @@
             :class="{ active: activeTab === 'database' }"
             @click="activeTab = 'database'"
           >▸ {{ trans.dbManagement }}</button>
+          <button
+            class="tab-btn"
+            :class="{ active: activeTab === 'themeStore' }"
+            @click="activeTab = 'themeStore'"
+          >▸ {{ trans.themeStore }}</button>
         </div>
 
         <ServerTable
@@ -103,6 +108,7 @@
           :groups="groups"
           :active-tab="activeTab"
           :selected-api-index="selectedApiIndex"
+          :theme-url="settings.theme_url"
           :latest-agent-version="latestAgentVersion"
           :copied-server-id="copiedServerId"
           :copied-note-server-id="copiedNoteServerId"
@@ -145,6 +151,14 @@
           :db-loading="dbLoading"
           :selected-api-index="selectedApiIndex"
           @open-db-modal="openDbModal"
+        />
+
+        <ThemeStorePanel
+          :trans="trans"
+          :active-tab="activeTab"
+          :selected-api-index="selectedApiIndex"
+          :current-theme-url="settings.theme_url"
+          @theme-applied="settings.theme_url = $event"
         />
       </div>
 
@@ -442,6 +456,7 @@ import AdminLogin from './components/AdminLogin.vue'
 import ServerTable from './components/ServerTable.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import DatabasePanel from './components/DatabasePanel.vue'
+import ThemeStorePanel from './components/ThemeStorePanel.vue'
 import EditServerModal from './components/EditServerModal.vue'
 import DeleteServerModal from './components/DeleteServerModal.vue'
 import CopyCommandModal from './components/CopyCommandModal.vue'
@@ -452,7 +467,7 @@ import { PING_NODE_FIELDS, validatePingNode } from '../../utils/pingNode.js'
 import { normalizeDisplayMode, resolveDisplayMode } from '../../utils/displayMode.js'
 import { usePasswordVisibility } from '../../composables/usePasswordVisibility'
 import { useTurnstile } from './composables/useTurnstile'
-import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../../../utils/serverBilling.js'
+import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../../utils/server.js'
 
 const trans = useTranslation()
 const route = useRoute()
@@ -580,6 +595,7 @@ const settings = ref({
   custom_cu: '',
   custom_cm: '',
   custom_bd: '',
+  theme_url: '',
   csp_static: '',
   csp_api: ''
 })
@@ -614,6 +630,7 @@ const editForm = ref({
   id: '',
   name: '',
   server_group: '',
+  region: '',
   tags: '',
   note: '',
   price: '',
@@ -776,6 +793,10 @@ const handleLogin = async () => {
 }
 
 const logout = async () => {
+  try {
+    await adminApiForSite({ action: 'clear_theme_preview_auth' })
+  } catch (_) {
+  }
   apiLogout()
   isLoggedIn.value = false
   latestAgentVersion.value = ''
@@ -897,6 +918,7 @@ const loadSettings = async () => {
         custom_cu: settingsData.custom_cu || '',
         custom_cm: settingsData.custom_cm || '',
         custom_bd: settingsData.custom_bd || '',
+        theme_url: settingsData.theme_url || '',
         csp_static: settingsData.csp_static || '',
         csp_api: settingsData.csp_api || ''
       }
@@ -1215,6 +1237,7 @@ const openEditModal = (server) => {
     id: server.id,
     name: server.name || '',
     server_group: server.server_group || '',
+    region: server.region_override ?? (server.region || ''),
     tags: server.tags || '',
     note: server.note || '',
     price: normalizePrice(server.price),
@@ -1298,6 +1321,7 @@ const saveEdit = async () => {
     id: editForm.value.id,
     name: editForm.value.name,
     server_group: editForm.value.server_group,
+    region: editForm.value.region,
     tags: editForm.value.tags,
     note: editForm.value.note,
     price: normalizedPrice,
