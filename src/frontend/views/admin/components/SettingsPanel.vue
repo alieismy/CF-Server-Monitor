@@ -10,6 +10,17 @@
             <input type="text" v-model="settings.site_title" class="form-input" :placeholder="'Cloudflare Server Monitor'">
           </div>
 
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.displayMode }}</label>
+            <select v-model="settings.display_mode" class="form-select">
+              <option value="bar">{{ trans.displayModeBar }}</option>
+              <option value="ring">{{ trans.displayModeRing }}</option>
+              <option value="table">{{ trans.displayModeTable }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
           <div class="form-group  ">
             <label class="form-label">{{ trans.bgImage }}</label>
             <div class="flex" style="gap:8px;">
@@ -21,16 +32,17 @@
             </div>
             <img v-if="settings.custom_bg" :src="settings.custom_bg" class="bg-preview">
           </div>
-        </div>
 
-        <div class="form-row">
-          <div class="form-group flex-1">
-            <label class="form-label">{{ trans.displayMode }}</label>
-            <select v-model="settings.display_mode" class="form-select">
-              <option value="bar">{{ trans.displayModeBar }}</option>
-              <option value="ring">{{ trans.displayModeRing }}</option>
-              <option value="table">{{ trans.displayModeTable }}</option>
-            </select>
+          <div class="form-group">
+            <label class="form-label">{{ trans.favicon }}</label>
+            <div class="flex" style="gap:8px;">
+              <input type="text" v-model="settings.favicon" class="form-input flex-1" placeholder="https://...">
+              <div class="upload-btn-wrapper">
+                <button class="btn btn-margin-0">📁 {{ trans.upload }}</button>
+                <input type="file" accept="image/*,.ico" @change="$emit('upload-favicon', $event)">
+              </div>
+            </div>
+            <img v-if="settings.favicon" :src="settings.favicon" class="bg-preview">
           </div>
         </div>
 
@@ -134,8 +146,7 @@
           <div class="form-group flex-1">
             <label class="form-label">{{ trans.expireReminder }}</label>
             <select v-model="settings.expire_reminder" class="form-select">
-              <option value="false">{{ trans.disabled }}</option>
-              <option value="true">{{ trans.notifyExpire }}</option>
+              <option v-for="option in expireReminderOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </div>
         </div>
@@ -391,7 +402,7 @@ const props = defineProps({
 
 defineEmits([
   'toggle-password', 'toggle-admin-password-change',
-  'save-settings', 'upload-bg',
+  'save-settings', 'upload-bg', 'upload-favicon',
   'send-test-notification', 'query-d1-usage'
 ])
 
@@ -410,6 +421,21 @@ const offlineNotifyOptions = computed(() => [
 
     return {
       value: String(minutes),
+      label: `${label}`
+    }
+  })
+])
+
+const expireReminderOptions = computed(() => [
+  { value: '0', label: `${props.trans.disabled}` },
+  ...Array.from({ length: 7 }, (_, index) => {
+    const days = index + 1
+    const label = props.trans.notifyExpireDays
+      ? props.trans.notifyExpireDays.replace('{days}', days)
+      : `Notify within ${days} days before expiration`
+
+    return {
+      value: String(days),
       label: `${label}`
     }
   })
