@@ -2432,6 +2432,7 @@ body::before {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    gap: 12px;
     background: rgba(0, 0, 0, 0.2);
 }
 
@@ -2449,6 +2450,53 @@ body::before {
 .chart-title-icon {
     color: var(--accent-cyan);
     font-size: 14px;
+}
+
+.chart-header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
+    min-width: 0;
+    margin-left: auto;
+}
+
+.chart-header-actions > .load-avg-row,
+.chart-header-actions > .net-indicator,
+.chart-header-actions > .ping-indicator,
+.chart-header-actions > .chart-current-value-container {
+    min-width: 0;
+}
+
+.chart-expand-btn {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.03);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+.chart-expand-btn:hover,
+.chart-expand-btn:focus-visible,
+.chart-expand-btn.active {
+    border-color: var(--accent-cyan);
+    color: var(--accent-cyan);
+    background: rgba(77, 166, 255, 0.08);
+    outline: none;
+}
+
+.chart-expand-btn svg {
+    width: 16px;
+    height: 16px;
+    pointer-events: none;
 }
 
 .chart-current-value-container {
@@ -2690,8 +2738,8 @@ body::before {
 }
 
 .server-row.dragging {
-    opacity: 0.5;
-    background: var(--accent-cyan) !important;
+    opacity: 0.28;
+    background: rgba(77, 166, 255, 0.16) !important;
 }
 
 .server-row.drag-over {
@@ -2703,10 +2751,40 @@ body::before {
     font-size: 12px;
     letter-spacing: -2px;
     cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
 }
 
 .drag-handle:hover {
     color: var(--accent-cyan);
+}
+
+body.server-row-drag-active,
+body.server-row-drag-active * {
+    cursor: grabbing !important;
+}
+
+.server-row-drag-ghost {
+    position: fixed;
+    z-index: 10020;
+    pointer-events: none;
+    opacity: 0.96;
+    transform: translateZ(0);
+    filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.35));
+}
+
+.server-row-drag-ghost .terminal-table {
+    width: 100%;
+    min-width: 100%;
+    margin: 0;
+    background: var(--bg-card);
+    border: 1px solid var(--accent-cyan);
+}
+
+.server-row-drag-ghost .server-row {
+    background: var(--bg-hover) !important;
 }
 
 .drag-info {
@@ -3241,6 +3319,10 @@ body::before {
 
 .disk-io-header .chart-title {
     flex-shrink: 0;
+}
+
+.disk-io-header .chart-header-actions {
+    flex: 1 1 320px;
 }
 
 .load-1m {
@@ -4112,6 +4194,10 @@ body.mikus-theme .mikus-stats-mascot-img {
     .time-btn {
         padding: 6px 10px;
         font-size: 11px;
+    }
+
+    .chart-expand-btn {
+        display: none;
     }
 
     .host-card-header {
