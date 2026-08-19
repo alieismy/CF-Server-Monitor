@@ -113,6 +113,17 @@
 >
 > **2026-07-26 修订**：加载站点设置时，后端会在缺少有效 `jwt_secret` 时生成并持久化一个 32 字节随机密钥。因此第 2、3 级回退主要用于数据库加载异常等兜底场景。
 
+#### D. WebSocket JWT（私有站点前端实时推送）
+
+- **使用位置**：`GET /api/ws`，仅当 `site_options.is_public !== 'true'` 时强制校验
+- **认证来源**（任一通过即可）：
+  - `Authorization: Bearer <token>`
+  - `Cookie: cfsm_auth=<token>`
+  - 查询参数：`token=<token>`、`auth_token=<token>` 或 `ws_token=<token>`
+- **失败返回**：`401 { "error": "Unauthorized", "code": 401 }`
+
+浏览器原生 WebSocket 不能自定义 `Authorization` Header。内置前端同域连接走 `cfsm_auth` Cookie，跨域连接才追加 `token=<jwt>` 查询参数。服务端会在转发到 Durable Object 前完成私有站点权限校验；公开站点不要求 JWT。
+
 ### 0.2 Turnstile 人机验证
 
 当 `site_options.turnstile_enabled === 'true'` 时，**所有** **`/api/*`** **与** **`/admin/api`** **公共接口**（除了下方 bypass 列表）都需要先验证 Cloudflare Turnstile Token。
@@ -223,10 +234,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   ```
   Content-Type: application/json
   X-Agent-Version: <探针版本号>
-  X-Agent-Config-Schema: 4
+  X-Agent-Config-Schema: 5
   X-Agent-Config-Md5: <最后成功应用的配置 MD5，首次为 none>
   ```
-  动态配置请求头为新版探针使用的可选字段；当前新 Go Agent 使用 schema `4`。schema `3` 仍按旧兼容配置返回，未携带时保持旧版响应协议。
+  动态配置请求头为新版探针使用的可选字段；当前新 Go Agent 使用 schema `5`。schema `3` / `4` 仍按旧兼容配置返回，未携带时保持旧版响应协议。
 
   WebSocket 握手只能使用 `GET + Upgrade`，这是 WebSocket 协议限制；后端仍通过同一个 `/update` 路径区分 `POST` 与 `wss`。握手成功后服务端先发送：
 
@@ -314,7 +325,8 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
       { "ts": 1737638341000, "metrics": { "...": "metrics at this timestamp" } }
     ],
     "collect_interval": 1,
-    "report_interval": 60
+    "report_interval": 60,
+    "wss_report_interval": 2
   }
   ```
 
@@ -372,10 +384,10 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 - 新版探针且配置 MD5 不一致，或仍有待确认流量修正：返回 `200 OK`，响应头携带当前
   `X-Agent-Config-Schema` 与 `X-Agent-Config-Md5`，响应体以固定顺序的完整 QueryParam 配置开头：
   ```text
-  collect_interval=0&report_interval=60&reset_day=1&schema_version=4&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=ip.zstaticcdn.com&interface=&connection_mode=auto
+  collect_interval=2&report_interval=60&reset_day=1&schema_version=5&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=ip.zstaticcdn.com&interface=&connection_mode=auto&wss_report_interval=2
   ```
   （`Content-Type: application/x-www-form-urlencoded; charset=utf-8`）
-- ~~动态配置包含 `traffic_calc_type`、`traffic_limit`、`auto_update` 等全部探针运行参数。~~ **2026-07-26 修订，2026-07-31 更新，2026-08-15 更新**：schema `4` 的 MD5 覆盖规范配置包含 `collect_interval`、`report_interval`、`reset_day`、`schema_version`、`custom_ct`、`custom_cu`、`custom_cm`、`custom_bd`、`interface`、`connection_mode`；schema `3` 兼容响应不包含 `connection_mode`。待应用的 `rx_correction`、`tx_correction` 会追加到响应体，但不参与配置 MD5；启用自动更新且版本不一致时追加 `update=1`。
+- ~~动态配置包含 `traffic_calc_type`、`traffic_limit`、`auto_update` 等全部探针运行参数。~~ **2026-07-26 修订，2026-07-31 更新，2026-08-15 更新，2026-08-18 更新，2026-08-19 更新**：schema `3` 不包含 `connection_mode`；schema `4` 增加 `connection_mode`，并保持原有序列化与 MD5 计算不变；schema `5` 在 WSS 全局开启且服务器 `connection_mode=auto` 时追加 `wss_report_interval`（`1-5` 秒，默认 `2`），并将 `collect_interval=0` 或大于 WSS 间隔的值规范为 WSS 间隔。待应用的 `rx_correction`、`tx_correction` 会追加到响应体，但不参与配置 MD5；启用自动更新且版本不一致时追加 `update=1`。
 - 探针应用流量修正后，可在下一次 `POST /update` 顶层回传 `rx_correction` / `tx_correction`。值匹配时后端清空待修正字段并直接返回纯文本 `OK`，本次请求不要求 `metrics`。
 - 失败：
   ```json
@@ -394,31 +406,32 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
   ```json
   { "type": "ack", "ts": 1737638343000, "persisted": true, "nextD1WriteAfterMs": 60000, "nextWssReportAfterMs": 60000 }
   ```
-  `persisted` 表示本条消息是否触发 D1 历史写入；`nextD1WriteAfterMs` 是距离下一次允许写入 D1 的最短等待时间。WSS 首条成功指标会立即写入一次 D1，后续按该服务器 `report_interval` 控制写入频率（允许值沿用配置：`30/60/120/180` 秒；异常回退 `60` 秒）。`nextWssReportAfterMs` 是服务端建议的下一次 WSS 上报间隔：有前端实时订阅时约为 `report_interval / 15`；仅资源告警缓存活跃且无前端订阅时至少 `60` 秒；无实时消费者时回退到 `report_interval`，用于降低 idle 状态 DO WebSocket 消息数。
-  新版 WSS Agent 可在握手 URL query 中携带 `config_schema=4` / `config_md5=<md5>`，也兼容握手 Header `X-Agent-Config-Schema: 4` 与 `X-Agent-Config-Md5` 记录当前配置状态；当某次上报消息携带 `config_schema: 4` / `config_md5` 时，ack 会同时返回动态配置协商字段。兼容 schema `3` 的 Agent 仍会收到不含 `connection_mode` 的 schema `3` 配置：
+  `persisted` 表示本条消息是否触发 D1 历史写入；`nextD1WriteAfterMs` 是距离下一次允许写入 D1 的最短等待时间。WSS 首条成功指标会立即写入一次 D1，后续按该服务器 `report_interval` 控制写入频率（允许值沿用配置：`30/60/120/180` 秒；异常回退 `60` 秒）。`nextWssReportAfterMs` 是服务端建议的下一次 WSS 上报间隔：有前端实时订阅时使用服务器 `wss_report_interval`；无前端访问时使用 `report_interval`，但最低为 `60` 秒，不区分资源告警缓存是否活跃。缺失或非法的 WSS 间隔回退为 `2` 秒。
+  新版 WSS Agent 可在握手 URL query 中携带 `config_schema=5` / `config_md5=<md5>`，也兼容握手 Header `X-Agent-Config-Schema: 5` 与 `X-Agent-Config-Md5` 记录当前配置状态；当某次上报消息携带 `config_schema: 5` / `config_md5` 时，ack 会同时返回动态配置协商字段。schema `3` / `4` Agent 仍会收到各自版本的兼容配置：
   ```json
   {
     "type": "ack",
     "ts": 1737638343000,
     "persisted": false,
     "nextD1WriteAfterMs": 30000,
-    "nextWssReportAfterMs": 3000,
-    "config_schema": 4,
+    "nextWssReportAfterMs": 2000,
+    "config_schema": 5,
     "config_md5": "b4d7c0d...",
     "has_config": true,
-    "body": "collect_interval=0&report_interval=60&reset_day=1&schema_version=4&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto",
-    "config_body": "collect_interval=0&report_interval=60&reset_day=1&schema_version=4&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto",
+    "body": "collect_interval=2&report_interval=60&reset_day=1&schema_version=5&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto&wss_report_interval=2",
+    "config_body": "collect_interval=2&report_interval=60&reset_day=1&schema_version=5&custom_ct=gd-ct-dualstack.ip.zstaticcdn.com&custom_cu=gd-cu-dualstack.ip.zstaticcdn.com&custom_cm=gd-cm-dualstack.ip.zstaticcdn.com&custom_bd=&interface=&connection_mode=auto&wss_report_interval=2",
     "payload": {
-      "collect_interval": 0,
+      "collect_interval": 2,
       "report_interval": 60,
       "reset_day": 1,
-      "schema_version": 4,
+      "schema_version": 5,
       "custom_ct": "gd-ct-dualstack.ip.zstaticcdn.com",
       "custom_cu": "gd-cu-dualstack.ip.zstaticcdn.com",
       "custom_cm": "gd-cm-dualstack.ip.zstaticcdn.com",
       "custom_bd": "",
       "interface": "",
       "connection_mode": "auto",
+      "wss_report_interval": 2,
       "config_md5": "b4d7c0d..."
     }
   }
@@ -465,7 +478,7 @@ CORS_ALLOWED_ORIGINS=https://status.example.com,https://admin.example.com
 
 ## 2. 公开 API（前端/管理端共用）
 
-> ~~以下接口除 `/api/ws` 外，若 `site_options.is_public !== 'true'` 则必须携带 JWT。~~ **2026-07-26 修订**：`/api/servers`、`/api/server`、`/api/history/all` 在私有站点需要 JWT；`/api/config`、`/api/ws`、`/theme` 无论站点是否公开均可访问。
+> ~~以下接口除 `/api/ws` 外，若 `site_options.is_public !== 'true'` 则必须携带 JWT。~~ **2026-07-26 修订**：`/api/servers`、`/api/server`、`/api/history/all` 在私有站点需要 JWT；`/api/config`、`/api/ws`、`/theme` 无论站点是否公开均可访问。**2026-08-19 修订**：私有站点的 `/api/ws` 也需要通过 WebSocket JWT 认证，公开站点仍可匿名连接。
 > 命中 Turnstile 时需带 `X-Turnstile-Token` 或 `X-Turnstile-Verified`。
 
 ### 2.1 `GET /api/config` - 获取站点配置
@@ -793,6 +806,13 @@ Content-Type: application/json
   - `subscribe`（可选，默认 `all`）：
     - `all` → 订阅所有服务器的最新指标（**批量合并推送，每 5 秒一次**）
     - `<serverId>` → 只订阅指定服务器；~~收到上报后立即实时推送。~~ **2026-07-26 修订**：同样经过最长约 5 秒的 Worker 合并窗口
+  - `token` / `auth_token` / `ws_token`（私有站点可选）：JWT 登录令牌，用于浏览器 WebSocket 无法设置 `Authorization` Header 的场景
+
+**鉴权**：
+
+- 公开站点：无需 JWT。
+- 私有站点：必须通过 WebSocket JWT 认证，认证来源支持 `Authorization: Bearer <jwt>`、`Cookie: cfsm_auth=<jwt>`、查询参数 `token` / `auth_token` / `ws_token`。浏览器前端同域走 Cookie，跨域走查询参数。
+- `ids` 只控制订阅过滤范围，不是服务端鉴权。
 
 **Response** `101 Switching Protocols`（WebSocket 握手）
 
@@ -812,9 +832,7 @@ Sec-WebSocket-Version: 13
 | `subscribe=all` | 批量合并，每 5 秒一次 | `batchUpdate` | 减少消息数量，降低前端渲染压力 |
 | `subscribe=<serverId>` | 最长约 5 秒批量窗口 | `batchUpdate` | 单台服务器详情页仅过滤目标 ID，消息仍经统一合并队列 |
 
-> `subscribe=all` 默认不推送任何服务器更新。客户端应先调用 `/api/servers` 获取当前可见服务器列表，再通过 WebSocket 通道发送 `subscribe` 消息，使用 `servers[].id` 作为过滤列表。该过滤是客户端订阅范围控制，不是服务端鉴权。
->
-> **安全提示**：`/api/ws` 本身不校验 JWT、站点公开状态或 `is_hidden`。知道服务器 ID 的客户端可以使用单 ID scope 订阅；如需服务端权限隔离，应先修改实现，不能把 `ids` 过滤当作鉴权。
+> `subscribe=all` 默认不推送任何服务器更新。客户端应先调用 `/api/servers` 获取当前可见服务器列表，再通过 WebSocket 通道发送 `subscribe` 消息，使用 `servers[].id` 作为过滤列表。
 
 **服务端 → 客户端消息**：
 
@@ -881,6 +899,7 @@ Sec-WebSocket-Version: 13
 
 - `503 { "error": "WebSocket not enabled", "code": 503 }` —— 未绑定 `METRICS_BROADCASTER` Durable Object
 - `426 Expected WebSocket upgrade request` —— 缺少 `Upgrade: websocket` 头
+- `401 { "error": "Unauthorized", "code": 401 }` —— 私有站点缺少有效 WebSocket JWT
 - `400 Invalid subscription scope` —— URL 中的 `subscribe` 不合法
 - `403 Forbidden` ——设置了 WebSocket `Origin`，且不在 `CORS_ALLOWED_ORIGINS` 中
 - `500 { "error": "WebSocket error", "code": 500 }` —— Worker 转发至 DO 失败
@@ -890,7 +909,14 @@ Sec-WebSocket-Version: 13
 ```js
 const { servers } = await (await fetch('/api/servers')).json();
 const ids = servers.map(s => s.id);
-const ws = new WebSocket('wss://status.example.com/api/ws?subscribe=all');
+const url = new URL('wss://status.example.com/api/ws');
+url.searchParams.set('subscribe', 'all');
+const sameHost = url.host === location.host;
+if (!sameHost) {
+  const token = localStorage.getItem('jwt_token');
+  if (token) url.searchParams.set('token', token);
+}
+const ws = new WebSocket(url.toString());
 ws.onopen = () => {
   ws.send(JSON.stringify({ type: 'subscribe', scope: 'all', ids }));
 };
@@ -1954,6 +1980,9 @@ wscat -c "wss://status.example.com/api/ws?subscribe=all"
 
 # 订阅指定服务器
 wscat -c "wss://status.example.com/api/ws?subscribe=9b2c4d3e-1a2b-4c5d-9e8f-7a6b5c4d3e2f"
+
+# 私有站点：使用查询参数 JWT
+wscat -c "wss://status.example.com/api/ws?subscribe=all&token=<jwt>"
 ```
 
 ### 8.16 公共：获取主题商店
