@@ -1,7 +1,7 @@
 import { buildAuthCookie, buildClearAuthCookie, checkAuth, simpleAuthResponse, validateCredentials, generateToken } from '../middleware/auth.js';
 import { getLatestMetricsForAllServers } from '../database/schema.js';
 import { getAllServers, clearServersListCache } from '../utils/cache.js';
-import { clearAppearanceSettingsCache, isWssReportEnabled, normalizeBooleanSetting, normalizeDisplayMode, normalizeExpireReminder, normalizeLongHistoryPoints, normalizeNotificationTemplate, normalizeNotificationWebhookBody, normalizeNotificationWebhookFormat, normalizeNotificationWebhookHeaders, normalizeNotificationWebhookMethod, normalizeResourceAlertRules, normalizeTgNotify, saveSiteOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
+import { clearAppearanceSettingsCache, isWssReportEnabled, normalizeBooleanSetting, normalizeDisplayMode, normalizeExpireReminder, normalizeFrontendWsTimeoutMinutes, normalizeLongHistoryPoints, normalizeNotificationTemplate, normalizeNotificationWebhookBody, normalizeNotificationWebhookFormat, normalizeNotificationWebhookHeaders, normalizeNotificationWebhookMethod, normalizeResourceAlertRules, normalizeTgNotify, saveSiteOptions, SITE_FIELDS, APPEARANCE_FIELDS } from '../utils/settings.js';
 import { mergeMetricsIntoServer } from '../utils/metrics.js';
 import { verifyTurnstileToken, hashPassword } from '../utils/common.js';
 import { AppError, createSuccessResponse, createBadRequestResponse, createUnauthorizedResponse, createErrorResponse } from '../utils/errors.js';
@@ -670,7 +670,7 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
         return createBadRequestResponse('tgBotTokenRequired');
       }
       try {
-        const testMsg = `✅ **测试通知**\n\n这是一条来自 CF Server Monitor 的测试消息。\n\n**时间:** ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`;
+        const testMsg = '这是一条来自 CF Server Monitor 的测试消息。';
         const result = await sendNotification({
           tg_bot_token,
           tg_chat_id: tg_chat_id || '',
@@ -808,6 +808,8 @@ export async function handleAdminAPI(request, env, sys, loadFullSettings = null,
             siteOptions[field] = expireReminder;
           } else if (field === 'long_history_points') {
             siteOptions[field] = normalizeLongHistoryPoints(settings[field]);
+          } else if (field === 'frontend_ws_timeout_minutes') {
+            siteOptions[field] = normalizeFrontendWsTimeoutMinutes(settings[field]);
           } else if (field === 'resource_alert_rules') {
             siteOptions[field] = normalizedResourceAlertRules;
           } else if (field === 'wss_report_enabled') {

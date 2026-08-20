@@ -556,7 +556,7 @@ import { t, useTranslation } from '../../utils/i18n'
 import { PING_NODE_FIELDS, validatePingNode } from '../../utils/pingNode.js'
 import { normalizeDisplayMode, resolveDisplayMode } from '../../utils/displayMode.js'
 import { applyMikusThemeOptions } from '../../utils/themeOptions.js'
-import { HISTORY } from '../../utils/constants.js'
+import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY } from '../../utils/constants.js'
 import { usePasswordVisibility } from '../../composables/usePasswordVisibility'
 import { useTurnstile } from './composables/useTurnstile'
 import { detectBillingCycle, detectCurrencySymbol, normalizeBillingCycle, normalizeCurrency, normalizePrice, renewExpireDateIfNeeded } from '../../utils/server.js'
@@ -645,6 +645,13 @@ const normalizeLongHistoryPointsSetting = (value) => {
       ? points
       : HISTORY.DEFAULT_LONG_RANGE_POINTS
   )
+}
+
+const normalizeFrontendWsTimeoutMinutesSetting = (value) => {
+  const minutes = Number(value)
+  return Number.isInteger(minutes) && minutes >= 0 && minutes <= FRONTEND_WS_TIMEOUT_MINUTES_MAX
+    ? minutes
+    : 0
 }
 
 const normalizeResourceAlertModeSetting = (value) => {
@@ -829,8 +836,8 @@ const settings = ref({
   show_price: true,
   show_expire: true,
   show_tf: true,
-  show_time: true,
   wss_report_enabled: false,
+  frontend_ws_timeout_minutes: 0,
   long_history_points: String(HISTORY.DEFAULT_LONG_RANGE_POINTS),
   tg_notify: '0',
   expire_reminder: '0',
@@ -843,7 +850,7 @@ const settings = ref({
   notification_webhook_format: 'json',
   notification_webhook_headers: '',
   notification_webhook_body: '{\n  "title": "{{emoji}} {{event}}",\n  "content": "{{notification}}"\n}',
-  notification_template: '{{emoji}}【CF Server Monitor】{{event}}\n服务器: {{client}}\n详情:\n{{message}}\n时间: {{time}}',
+  notification_template: '{{emoji}}【CF Server Monitor】{{event}}\n\n{{message}}\n\n{{time}}',
   turnstile_enabled: false,
   turnstile_site_key: '',
   turnstile_secret_key: '',
@@ -1209,8 +1216,8 @@ const loadSettings = async () => {
         show_price: settingsData.show_price === 'true',
         show_expire: settingsData.show_expire === 'true',
         show_tf: settingsData.show_tf === 'true',
-        show_time: settingsData.show_time === 'true',
         wss_report_enabled: settingsData.wss_report_enabled === 'true' || settingsData.wss_report_enabled === true,
+        frontend_ws_timeout_minutes: normalizeFrontendWsTimeoutMinutesSetting(settingsData.frontend_ws_timeout_minutes),
         long_history_points: normalizeLongHistoryPointsSetting(settingsData.long_history_points),
         tg_notify: normalizeTgNotifySetting(settingsData.tg_notify),
         expire_reminder: normalizeExpireReminderSetting(settingsData.expire_reminder),
@@ -1223,7 +1230,7 @@ const loadSettings = async () => {
         notification_webhook_format: ['json', 'form', 'text'].includes(String(settingsData.notification_webhook_format || '').toLowerCase()) ? String(settingsData.notification_webhook_format).toLowerCase() : 'json',
         notification_webhook_headers: settingsData.notification_webhook_headers || '',
         notification_webhook_body: settingsData.notification_webhook_body || '{\n  "title": "{{emoji}} {{event}}",\n  "content": "{{notification}}"\n}',
-        notification_template: settingsData.notification_template || '{{emoji}}【CF Server Monitor】{{event}}\n服务器: {{client}}\n详情:\n{{message}}\n时间: {{time}}',
+        notification_template: settingsData.notification_template || '{{emoji}}【CF Server Monitor】{{event}}\n\n{{message}}\n\n{{time}}',
         turnstile_enabled: settingsData.turnstile_enabled === 'true',
         turnstile_login_enabled: settingsData.turnstile_login_enabled === 'true',
         turnstile_site_key: settingsData.turnstile_site_key || '',
@@ -1283,6 +1290,12 @@ const saveSettings = async () => {
 
   if (!settings.value.username || settings.value.username.trim().length === 0) {
     validationError.value = trans.value.usernameRequired
+    return
+  }
+
+  const frontendWsTimeoutMinutes = Number(settings.value.frontend_ws_timeout_minutes)
+  if (!Number.isInteger(frontendWsTimeoutMinutes) || frontendWsTimeoutMinutes < 0 || frontendWsTimeoutMinutes > FRONTEND_WS_TIMEOUT_MINUTES_MAX) {
+    validationError.value = trans.value.invalidFrontendWsTimeoutMinutes
     return
   }
 
@@ -1360,8 +1373,8 @@ const saveSettings = async () => {
       show_price: settings.value.show_price ? 'true' : 'false',
       show_expire: settings.value.show_expire ? 'true' : 'false',
       show_tf: settings.value.show_tf ? 'true' : 'false',
-      show_time: settings.value.show_time ? 'true' : 'false',
       wss_report_enabled: settings.value.wss_report_enabled ? 'true' : 'false',
+      frontend_ws_timeout_minutes: String(frontendWsTimeoutMinutes),
       long_history_points: normalizeLongHistoryPointsSetting(settings.value.long_history_points),
       tg_notify: normalizeTgNotifySetting(settings.value.tg_notify),
       expire_reminder: normalizeExpireReminderSetting(settings.value.expire_reminder),

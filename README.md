@@ -10,7 +10,7 @@
   <a href="README-en.md">English</a>
 </p>
 
-[![Workers](https://img.shields.io/badge/Workers-2.8.4%20Beta3-f38020?style=flat-square&logo=cloudflare&logoColor=white)](version.json)
+[![Workers](https://img.shields.io/badge/Workers-2.8.4%20Beta4-f38020?style=flat-square&logo=cloudflare&logoColor=white)](version.json)
 [![GitHub Stars](https://img.shields.io/github/stars/huilang-me/CF-Server-Monitor?style=flat-square&logo=github)](https://github.com/huilang-me/CF-Server-Monitor/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/huilang-me/CF-Server-Monitor?style=flat-square&logo=github)](https://github.com/huilang-me/CF-Server-Monitor/forks)
 [![License](https://img.shields.io/badge/License-MIT-16a34a?style=flat-square)](#许可证)
@@ -97,8 +97,7 @@ flowchart LR
 
 近期变化：
 
-- `2.8.4 Beta3`：通知设置新增自定义 Webhook 渠道、GET/POST 自定义参数、统一通知模板和 `{{emoji}}` 变量，测试通知会按模板发送。
-- `2.8.4`：新增 Agent WSS 上报通道，提升实时数据推送及时性；新增 D1 / Workers / Durable Objects 账户用量展示，优化无前端订阅时的 Durable Object 实时广播请求，降低空闲额度消耗。
+- `2.8.4`：新增 Agent WSS 上报，提升实时数据推送及时性；新增账户Do用量展示，优化无前端订阅时的 Do 实时广播请求，降低空闲额度消耗。通知设置新增自定义 Webhook 渠道, 新增前端wss超时配置。
 - `2.8.3`：新增磁盘 IO 统计，默认 Agent 切换为 Go 版本，新增服务器延迟与丢包率实时窗口。
 - `2.8.2`：引入 Go Agent 支持。
 - `2.8.1`：优化长时间历史查询 D1 读行，增加资源负载通知和主题商店接口优化。
@@ -319,10 +318,10 @@ npm run build:github-page
 
 ```text
 {{emoji}}【CF Server Monitor】{{event}}
-服务器: {{client}}
-详情:
+
 {{message}}
-时间: {{time}}
+
+{{time}}
 ```
 
 可用模板变量：
@@ -334,7 +333,7 @@ npm run build:github-page
 | `{{client}}` / `{{clients}}` | 本次通知涉及的服务器名称，多个服务器用逗号连接 |
 | `{{count}}` | 本次通知涉及的服务器数量；默认模板不显示，但可自定义加入 |
 | `{{message}}` | 通知详情列表 |
-| `{{time}}` | 发送时间 |
+| `{{time}}` | UTC 发送时间 |
 | `{{notification}}` | 应用通知模板后的完整内容，通常用于 Webhook 的 `content` |
 | `{{title}}` | 固定标题 `💌 Cloudflare Server Monitor` |
 
@@ -343,67 +342,6 @@ npm run build:github-page
 - 离线告警：节点离线达到设定阈值后通知，恢复后发送恢复通知。
 - 到期提醒：服务器到期前 1 到 7 天内每天提醒，也可关闭。
 - 资源负载告警：按 CPU、内存、磁盘、上下行速率等指标配置规则。
-
-默认模板输出示例：
-
-```text
-❌【CF Server Monitor】节点离线告警
-服务器: server-a, server-b
-详情:
-• server-a - 2026/8/19 10:21:00
-• server-b - 无上报记录
-时间: 2026/8/19 10:25:00
-```
-
-```text
-✅【CF Server Monitor】节点恢复通知
-服务器: server-a, server-b
-详情:
-• server-a
-• server-b
-时间: 2026/8/19 10:30:00
-```
-
-```text
-⚠️【CF Server Monitor】服务器到期提醒
-服务器: vps-hk, vps-sg
-详情:
-• vps-hk - 剩余3天 (2026-08-22)
-• vps-sg - 剩余1天 (2026-08-20)
-时间: 2026/8/19 10:35:00
-```
-
-```text
-❌【CF Server Monitor】资源负载告警
-服务器: server-a, server-b
-详情:
-⚠️ **资源负载告警** (2个)
-
-• High CPU / server-a - 平均 5 分钟
-  CPU 平均 92.3% > 80%
-• High RAM / server-b - 窗口样本连续 5 分钟
-  RAM 当前 91.2% > 85%
-时间: 2026/8/19 10:40:00
-```
-
-```text
-✅【CF Server Monitor】资源负载恢复
-服务器: server-a
-详情:
-✅ **资源负载恢复** (1个)
-
-• High CPU / server-a
-  CPU 当前 42.1% < 80%
-时间: 2026/8/19 10:45:00
-```
-
-```text
-✅【CF Server Monitor】测试通知
-服务器: CF Server Monitor
-详情:
-这是一条来自 CF Server Monitor 的测试消息。
-时间: 2026/8/19 10:55:00
-```
 
 配置后请先点击发送测试通知，再保存配置。
 
@@ -422,6 +360,7 @@ npm run build:github-page
 - `/api/ws` 支持三种 JWT 认证来源：`Authorization: Bearer <token>`、`Cookie: cfsm_auth=<token>`、查询参数 `token` / `auth_token` / `ws_token`。
 - 浏览器原生 WebSocket 不能自定义 `Authorization` Header，内置前端同域连接走 `cfsm_auth` Cookie，跨域连接才在 URL 中追加 `token=<jwt>` 查询参数。
 - 查询参数 token 可能出现在访问日志中，请只通过 HTTPS 使用，并避免把带 token 的 WebSocket URL 分享给他人。
+- 后台可配置“前端 WSS 超时（分钟）”：默认 `0`，表示不因连接时长主动断开；设为正整数后，内置前端到时会断开实时订阅并弹窗让用户选择关闭或继续。
 
 ### Turnstile
 

@@ -123,11 +123,6 @@
             <input type="checkbox" id="cfg_show_tf" v-model="settings.show_tf">
             <label>{{ trans.showTf }}</label>
           </div>
-
-          <div class="form-group flex-1 checkbox-item">
-            <input type="checkbox" id="cfg_show_time" v-model="settings.show_time">
-            <label>{{ trans.showTime }}</label>
-          </div>
         </div>
 
         <div class="form-group">
@@ -137,12 +132,27 @@
           </p>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">{{ trans.longHistoryPoints }}</label>
-          <select v-model="settings.long_history_points" class="form-select">
-            <option v-for="option in longHistoryPointOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-          <p class="text-muted text-sm mt-1">{{ trans.longHistoryPointsTip }}</p>
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.frontendWsTimeoutMinutes }}</label>
+            <input
+              v-model.number="settings.frontend_ws_timeout_minutes"
+              type="number"
+              min="0"
+              :max="FRONTEND_WS_TIMEOUT_MINUTES_MAX"
+              step="1"
+              class="form-input"
+            >
+            <p class="text-muted text-sm mt-1">{{ trans.frontendWsTimeoutMinutesTip }}</p>
+          </div>
+
+          <div class="form-group flex-1">
+            <label class="form-label">{{ trans.longHistoryPoints }}</label>
+            <select v-model="settings.long_history_points" class="form-select">
+              <option v-for="option in longHistoryPointOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+            <p class="text-muted text-sm mt-1">{{ trans.longHistoryPointsTip }}</p>
+          </div>
         </div>
       </div>
 
@@ -271,7 +281,7 @@
               v-model="settings.notification_template"
               class="form-textarea"
               rows="5"
-              placeholder="{{emoji}}【CF Server Monitor】{{event}}\n服务器: {{client}}\n详情:\n{{message}}\n时间: {{time}}"
+              placeholder="{{emoji}}【CF Server Monitor】{{event}}\n\n{{message}}\n\n{{time}}"
             ></textarea>
           </div>
         </div>
@@ -582,7 +592,7 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
-import { HISTORY } from '../../../utils/constants.js'
+import { FRONTEND_WS_TIMEOUT_MINUTES_MAX, HISTORY } from '../../../utils/constants.js'
 import { currentLang } from '../../../utils/i18n.js'
 import { PING_NODE_FIELDS, validatePingNode } from '../../../utils/pingNode.js'
 

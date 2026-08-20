@@ -1,8 +1,8 @@
-const CURRENT_VERSION = '2.8.4 Beta3';
+const CURRENT_VERSION = '2.8.4 Beta4';
 export const DEFAULT_SITE_TITLE = 'Cloudflare Server Monitor';
 export const APPEARANCE_FIELDS = ['site_title', 'custom_bg', 'favicon', 'custom_head', 'custom_script', 'csp_static', 'csp_api', 'display_mode', 'theme_options'];
 
-export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'show_time', 'wss_report_enabled', 'long_history_points', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'notification_webhook_enabled', 'notification_webhook_url', 'notification_webhook_method', 'notification_webhook_format', 'notification_webhook_headers', 'notification_webhook_body', 'notification_template', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
+export const SITE_FIELDS = ['is_public', 'show_price', 'show_expire', 'show_tf', 'wss_report_enabled', 'frontend_ws_timeout_minutes', 'long_history_points', 'tg_notify', 'tg_bot_token', 'tg_chat_id', 'notification_webhook_enabled', 'notification_webhook_url', 'notification_webhook_method', 'notification_webhook_format', 'notification_webhook_headers', 'notification_webhook_body', 'notification_template', 'turnstile_enabled', 'turnstile_login_enabled', 'turnstile_site_key', 'turnstile_secret_key', 'jwt_secret', 'username', 'password', 'cloudflare_account_id', 'cloudflare_token', 'custom_ct', 'custom_cu', 'custom_cm', 'custom_bd', 'expire_reminder', 'resource_alert_rules', 'theme_url', 'history_id_optimized','servers_optimized'];
 
 const SITE_SETTINGS_TTL = 120 * 1000;
 const JWT_SECRET_MIN_LENGTH = 32;
@@ -12,14 +12,17 @@ export const TG_NOTIFY_LEGACY_TRUE_MINUTES = 5;
 export const EXPIRE_REMINDER_DAYS_MAX = 7;
 export const LONG_HISTORY_POINT_OPTIONS = [60, 120, 180, 240];
 export const DEFAULT_LONG_HISTORY_POINTS = 120;
+export const FRONTEND_WS_TIMEOUT_MINUTES_MAX = 1440;
 export const RESOURCE_ALERT_WINDOW_MIN = 5;
 export const RESOURCE_ALERT_WINDOW_MAX = 10;
 export const RESOURCE_ALERT_MODE_CONTINUOUS = 'continuous';
 export const RESOURCE_ALERT_MODE_AVERAGE = 'average';
 export const RESOURCE_ALERT_RULES_MAX = 20;
-export const DEFAULT_NOTIFICATION_TEMPLATE = '{{emoji}}【CF Server Monitor】{{event}}\n服务器: {{client}}\n详情:\n{{message}}\n时间: {{time}}';
+export const DEFAULT_NOTIFICATION_TEMPLATE = '{{emoji}}【CF Server Monitor】{{event}}\n\n{{message}}\n\n{{time}}';
 export const DEFAULT_NOTIFICATION_WEBHOOK_BODY = '{\n  "title": "{{emoji}} {{event}}",\n  "content": "{{notification}}"\n}';
 const LEGACY_DEFAULT_NOTIFICATION_TEMPLATES = [
+  '{{emoji}}【CF Server Monitor】{{event}}\n\n{{message}}\n\n时间: {{time}}',
+  '{{emoji}}【CF Server Monitor】{{event}}\n服务器: {{client}}\n详情:\n{{message}}\n时间: {{time}}',
   '事件: {{event}}\n服务名: {{client}}\n消息: {{message}}\n时间: {{time}}',
   '【CF Server Monitor】{{event}}\n服务器: {{client}}\n数量: {{count}}\n详情:\n{{message}}\n时间: {{time}}',
   '{{emoji}}【CF Server Monitor】{{event}}\n服务器: {{client}}\n数量: {{count}}\n详情:\n{{message}}\n时间: {{time}}'
@@ -63,8 +66,8 @@ const defaults = {
   show_price: 'true',
   show_expire: 'true',
   show_tf: 'true',
-  show_time: 'true',
   wss_report_enabled: 'false',
+  frontend_ws_timeout_minutes: '0',
   long_history_points: String(DEFAULT_LONG_HISTORY_POINTS),
   tg_notify: '0',
   tg_bot_token: '',
@@ -100,6 +103,15 @@ export function normalizeLongHistoryPoints(value) {
     LONG_HISTORY_POINT_OPTIONS.includes(points)
       ? points
       : DEFAULT_LONG_HISTORY_POINTS
+  );
+}
+
+export function normalizeFrontendWsTimeoutMinutes(value) {
+  const minutes = Number(value);
+  return String(
+    Number.isInteger(minutes) && minutes >= 0 && minutes <= FRONTEND_WS_TIMEOUT_MINUTES_MAX
+      ? minutes
+      : 0
   );
 }
 
@@ -320,7 +332,14 @@ export function normalizeResourceAlertRules(value) {
     .map((rule, index) => {
       let id = rule.id;
       if (seenIds.has(id)) {
-        id = `${id}_${index + 1}`.slice(0, 64);
+        const suffix = `_${index + 1}`;
+        id = `${id.slice(0, Math.max(0, 64 - suffix.length))}${suffix}`;
+        let attempt = index + 1;
+        while (seenIds.has(id)) {
+          attempt += 1;
+          const nextSuffix = `_${attempt}`;
+          id = `${rule.id.slice(0, Math.max(0, 64 - nextSuffix.length))}${nextSuffix}`;
+        }
       }
       seenIds.add(id);
       return { ...rule, id };
@@ -498,6 +517,7 @@ export async function loadSiteSettings(db, options = {}) {
     result.long_history_points = normalizeLongHistoryPoints(result.long_history_points);
     result.resource_alert_rules = normalizeResourceAlertRules(result.resource_alert_rules);
     result.wss_report_enabled = normalizeBooleanSetting(result.wss_report_enabled);
+    result.frontend_ws_timeout_minutes = normalizeFrontendWsTimeoutMinutes(result.frontend_ws_timeout_minutes);
     result.notification_webhook_enabled = normalizeBooleanSetting(result.notification_webhook_enabled);
     result.notification_webhook_method = normalizeNotificationWebhookMethod(result.notification_webhook_method);
     result.notification_webhook_format = normalizeNotificationWebhookFormat(result.notification_webhook_format);
@@ -583,11 +603,13 @@ export async function saveSiteOptions(db, updates) {
   
   const siteOptions = { ...legacySiteOptions, ...existingSiteOptions, ...updates };
   delete siteOptions.show_long_history;
+  delete siteOptions.show_time;
   siteOptions.tg_notify = normalizeTgNotify(siteOptions.tg_notify);
   siteOptions.expire_reminder = normalizeExpireReminder(siteOptions.expire_reminder);
   siteOptions.long_history_points = normalizeLongHistoryPoints(siteOptions.long_history_points);
   siteOptions.resource_alert_rules = normalizeResourceAlertRules(siteOptions.resource_alert_rules);
   siteOptions.wss_report_enabled = normalizeBooleanSetting(siteOptions.wss_report_enabled);
+  siteOptions.frontend_ws_timeout_minutes = normalizeFrontendWsTimeoutMinutes(siteOptions.frontend_ws_timeout_minutes);
   siteOptions.notification_webhook_enabled = normalizeBooleanSetting(siteOptions.notification_webhook_enabled);
   siteOptions.notification_webhook_method = normalizeNotificationWebhookMethod(siteOptions.notification_webhook_method);
   siteOptions.notification_webhook_format = normalizeNotificationWebhookFormat(siteOptions.notification_webhook_format);
