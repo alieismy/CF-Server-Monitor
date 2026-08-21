@@ -52,7 +52,6 @@
           class="metric-ring-chart metric-ring-chart-memory"
           :class="{ 'has-swap-ring': hasSwapData }"
           :style="getMemoryRingStyle(ramPercent, getUsageColor(ramPercent), swapPercent, getUsageColor(swapPercent))"
-          :title="memoryUsageTitle"
         >
           <span class="metric-ring-track"></span>
           <span class="metric-ring-progress"></span>
@@ -194,7 +193,6 @@ const {
   expireDateTitle,
   loadAvg,
   ramUsageText,
-  memoryUsageTitle,
   diskUsageText,
   getUsageColor,
   getRingStyle,

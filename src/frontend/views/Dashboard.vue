@@ -175,7 +175,7 @@
                 </span>
                 {{ (server.region || 'XX').toUpperCase() }}
               </td>
-              <td :title="getSystemTitle(server)">
+              <td>
                 <span class="table-system-info">
                   <OsIcon :os="server.os" />
                   <span class="os-label">{{ formatSystemOs(server.os) }} / {{ server.arch || 'N/A' }} </span>
@@ -215,7 +215,7 @@
               </td>
               <td v-else>-</td>
               <td class="table-conn-cell">
-                <span class="conn-pair" title="TCP / UDP">{{ formatConnPair(server) }}</span>
+                <span class="conn-pair">{{ formatConnPair(server) }}</span>
               </td>
               <td>{{ formatBytes(server.net_in_speed) }}/s</td>
               <td>{{ formatBytes(server.net_out_speed) }}/s</td>
@@ -524,8 +524,6 @@ const formatSystemOs = (value) => {
     .replace(/\s+/g, ' ')
     .trim() || raw
 }
-
-const getSystemTitle = (server) => `${server.os || 'N/A'} / ${server.arch || 'N/A'}`
 
 const getUpdateTime = (lastUpdated) => {
   if (!lastUpdated) return '-'
