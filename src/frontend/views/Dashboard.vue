@@ -8,7 +8,7 @@
           <img class="mikus-loading-gif" :src="mikusAsset('loli.gif')" alt="Loading">
           <div class="mikus-loading-brand">
             <img class="mikus-loading-logo" :src="mikusAsset('miku.png')" alt="">
-            <span>{{ sysConfig.site_title || 'Komari' }}</span>
+            <span>{{ sysConfig.site_title || 'CF Server Monitor' }}</span>
           </div>
           <div class="mikus-loading-progress" aria-hidden="true">
             <div class="mikus-loading-progress-fill"></div>
@@ -188,7 +188,7 @@
               <th>{{ trans.hostname }}</th>
               <th>{{ trans.region }}</th>
               <th>{{ trans.osArch }}</th>
-              <th>{{ trans.cpu }}</th>
+              <th>CPU</th>
               <th>{{ trans.ram }}</th>
               <th>{{ trans.disk }}</th>
               <th>{{ trans.use }}</th>
@@ -1314,6 +1314,13 @@ const goToServer = (server) => {
   router.push(getServerLink(server))
 }
 
+const handleThemeOptionsChanged = (event) => {
+  sysConfig.value = {
+    ...sysConfig.value,
+    theme_options: normalizeThemeOptions(event.detail)
+  }
+}
+
 onMounted(async () => {
   financeCurrency.value = getStoredFinanceCurrency()
   loadFinanceRates()
@@ -1335,6 +1342,7 @@ onMounted(async () => {
     window.addEventListener('resize', scheduleFilterMeasurement)
   }
   document.addEventListener('click', closeFilterMoreOnOutsideClick)
+  window.addEventListener('theme-options-changed', handleThemeOptionsChanged)
   startLiveSocket()
   document.addEventListener('visibilitychange', handleVisibility)
 
@@ -1360,6 +1368,7 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener('visibilitychange', handleVisibility)
   document.removeEventListener('click', closeFilterMoreOnOutsideClick)
+  window.removeEventListener('theme-options-changed', handleThemeOptionsChanged)
   window.removeEventListener('resize', scheduleFilterMeasurement)
   if (filterMeasureTimer) clearTimeout(filterMeasureTimer)
   if (filterResizeObserver) filterResizeObserver.disconnect()

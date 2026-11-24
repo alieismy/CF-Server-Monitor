@@ -10,7 +10,7 @@ A lightweight multi-server monitoring dashboard built on Cloudflare Workers, D1,
   <a href="README-en.md">English</a>
 </p>
 
-[![Workers](https://img.shields.io/badge/Workers-2.8.8%20Beta1-f38020?style=flat-square&logo=cloudflare&logoColor=white)](version.json)
+[![Workers](https://img.shields.io/badge/Workers-2.8.8%20Beta2-f38020?style=flat-square&logo=cloudflare&logoColor=white)](version.json)
 [![GitHub Stars](https://img.shields.io/github/stars/huilang-me/CF-Server-Monitor?style=flat-square&logo=github)](https://github.com/huilang-me/CF-Server-Monitor/stargazers)
 [![GitHub Forks](https://img.shields.io/github/forks/huilang-me/CF-Server-Monitor?style=flat-square&logo=github)](https://github.com/huilang-me/CF-Server-Monitor/forks)
 [![License](https://img.shields.io/badge/License-MIT-16a34a?style=flat-square)](#license)
@@ -100,7 +100,7 @@ Core flow:
 
 Recent changes:
 
-- `2.8.8`: Login now issues a `cfsm_ua` cookie so Cloudflare security rules can let the browser through; added an App Password for third-party apps / iOS widgets to gain additional read access while bypassing Turnstile.
+- `2.8.8`: Login now issues a `cfsm_ua` cookie so Cloudflare security rules can let the browser through; added an App Password for third-party apps / iOS widgets to gain additional permissions and bypass Turnstile; added Passkey login; added an instance name parameter for installing multiple independent instances on the same machine(agent >= 1.1.4).
 - `2.8.7`: Optimized scheduled task logic to reduce CPU usage and avoid exceeding free-tier limits. `/update` now enforces a 512KB body limit and returns 413 beyond it; Agent WSS connections for deleted servers are closed within 2 minutes; WSS reports now validate frame size and authenticated sessions survive transient D1 errors; batched samples keep only the latest 300. Added a server-side auto-discovery mechanism to automatically bind the server ID. Add custom User-Agent.Import and export include settings options. Resource alerts now support TCP/UDP connection counts. When no public IP is reported, fall back to the request header's source address.
 - `2.8.6`: WSS frontend subscription with 250ms batch reporting, added SMTP notification channel, added monthly traffic threshold alert, removed legacy database compatibility, added Docker installation method.
 - `2.8.5`: Added custom Ping node names, ICMP mode, optimized WSS response logic, API interface optimization, and optimized frontend. Also added 4 default Ping nodes.
@@ -232,6 +232,7 @@ See [cfsm-agent](https://github.com/huilang-me/cfsm-agent) for full install path
 | `-name` | Server name used when Auto Discovery creates the server | Client IP (`CF-Connecting-IP`) |
 | `-secret` | Agent reporting secret; must match `API_SECRET` | Required |
 | `-url` | Worker reporting URL | Required |
+| `-instance` | Instance name; allows multiple independent instances on one machine | Empty (default instance) |
 | `-collect_interval` | Local collection interval; `0` disables extra sampling | `0` |
 | `-interval` | Reporting interval in seconds | `60` |
 | `-ct` / `-cu` / `-cm` / `-bd` | Custom network quality test nodes, supports `host[:port]` | Built-in nodes |
@@ -240,6 +241,33 @@ See [cfsm-agent](https://github.com/huilang-me/cfsm-agent) for full install path
 | `-tx_correction` | Upload traffic correction in GB | Empty |
 
 `-collect_interval` controls local sampling. `-interval` controls reporting frequency. Shorter intervals increase Workers requests and D1 writes.
+
+### Multiple Instances
+
+Both the admin copy-install command and the Auto Discovery command provide an "Instance name" field. Set a name (letters, digits, underscores and hyphens only, up to 32 characters) to install multiple independent Probe instances on the same machine. Leave it empty to use the default instance, preserving the previous behavior.
+
+```bash
+# Install an independent instance named alpha
+curl -fsSL https://raw.githubusercontent.com/huilang-me/cfsm-agent/main/install.sh | sh -s -- install -id=<server-id> -secret='<API_SECRET>' -url=https://<your-worker>/update -instance=alpha
+```
+
+The instance name is used as a suffix for the service name and the config/traffic-data paths (for example `cf-probe-alpha`), so each instance keeps its own process, configuration and traffic data. Windows commands and Auto Discovery commands support this parameter as well.
+
+To uninstall, target a single instance or remove every instance on the machine:
+
+```bash
+# Uninstall only the alpha instance
+curl -fsSL https://raw.githubusercontent.com/huilang-me/cfsm-agent/main/install.sh | sh -s -- uninstall -instance=alpha
+
+# Uninstall every Probe instance on this machine
+curl -fsSL https://raw.githubusercontent.com/huilang-me/cfsm-agent/main/install.sh | sh -s -- uninstall --all
+```
+
+On Windows PowerShell, append `-instance=alpha` or `--all` after `uninstall`, for example:
+
+```powershell
+PowerShell -ExecutionPolicy Bypass -File $script uninstall -instance=alpha
+```
 
 ### Non-root Install (Recommended)
 
@@ -332,6 +360,14 @@ All three scripts support `CONFIG.userAgent`. If the Cloudflare security rule ab
 If the site is not public, or the widget should show hidden servers, put the admin panel's Security → App Access Password into `CONFIG.appPassword`; the scripts send it as the `X-App-Password` header.
 
 To watch several servers at once, use [scripts/ios-scriptable-widget-multi.js](scripts/ios-scriptable-widget-multi.js): leave the Parameter empty to show all public servers, set `server-a,server-b` to show only those, or set a single server to get the detail view (with three-net latency bars). Servers are paged automatically (1 per page on small/medium widgets, 2 per page on large ones), and `page:2` (also `p2`, `2`, or `第2页`) selects a page for smart stacks. It requests `/api/servers` (the full list), so it costs more D1 reads than the single-server widget when you have many servers.
+
+### Third-party App
+
+A community-developed third-party mobile app is available for Android and iOS:
+
+- Project URL: <https://github.com/chaos-zhu/cf_monitor_app>
+
+> **Third-party risk notice**: This app is maintained by a third-party developer and is not an official part of this project. The maintainers of this project are not responsible for its code, security, or data behavior.
 
 ## Notifications and Alerts
 
@@ -439,6 +475,16 @@ Send a test notification before saving.
 - Tokens in query parameters may appear in access logs; only use HTTPS and avoid sharing WebSocket URLs that contain a token.
 - The admin panel can configure the frontend WSS timeout in minutes: the default `0` never disconnects based on connection age; a positive value closes the built-in frontend subscription at the limit and prompts the user to close or continue.
 
+### Passkey Login
+
+Administrators can add multiple passkeys in the admin settings and sign in using the Passkey button. Password login remains available. Supported authenticators include iCloud Keychain, Windows Hello, and FIDO2 security keys such as compatible YubiKeys. Security keys must support user verification and may need a FIDO2 PIN.
+
+Use the Worker's own HTTPS admin URL to register and sign in. Passkeys are bound to the login domain; a different domain requires a new registration. Cross-origin frontends such as GitHub Pages cannot use the Worker's passkeys directly.
+
+Adding or deleting a passkey requires an authenticated admin session and the current password. Select **Add Passkey**, then choose your device or security key in the system prompt. The server stores public keys, never private keys. Keep a strong independent admin password and at least one backup credential.
+
+Login challenges are stored briefly in D1. Each source IP can create up to five login challenges per minute, and up to 100 unexpired login challenges can exist at once. Clients sharing an IP share the per-source limit. Retry later if a limit is reached. Enable login Turnstile and, where appropriate, Cloudflare security rules or rate limiting on `/admin/api` for additional protection against abuse and quota consumption.
+
 ### Turnstile
 
 Cloudflare Turnstile can be enabled from the admin panel to reduce abuse of public APIs and login endpoints. In multi-site mode, use the same Site Key across sites when Turnstile is enabled.
@@ -456,7 +502,7 @@ When scanners keep hitting the monitor domain, every request still counts agains
 **Requirements**
 
 - The domain is hosted on Cloudflare and bound to the Worker.
-- Agent version ≥ `1.1.1`, Workers version ≥ `2.8.7`.
+- Agent version ≥ `1.1.4`, Workers version ≥ `2.8.7`.
 
 **Steps**
 
@@ -530,7 +576,7 @@ For one-click deployment, redeploy to the same project or migrate to a fork-base
 
 ### Upgrade Agent
 
-The Go Agent keeps existing configuration. Re-running the install command upgrades it.
+The Go Agent keeps existing configuration. Re-running the install command upgrades it. With multiple instances, re-run the install command with the same `-instance` for each instance.
 
 Linux / OpenWrt / Synology DSM / FreeBSD / macOS:
 
@@ -553,6 +599,8 @@ Go Agent:
 ```bash
 curl -fsSL https://raw.githubusercontent.com/huilang-me/cfsm-agent/main/install.sh | sh -s -- uninstall
 ```
+
+See "Multiple Instances" above for uninstalling a single instance or all instances (`-instance=NAME` / `--all`). The admin delete-server dialog can also generate and copy the matching command.
 
 The legacy Shell / PowerShell Agent is no longer maintained. The commands below are only for cleaning up historical Shell / PowerShell installations. Use the script that matches the system script used during the original install. If the current Agent is the Go Agent, use the Go uninstall command above.
 
@@ -595,7 +643,7 @@ After upgrading from older versions to versions with GPU, disk IO, packet loss, 
 
 ### Requirements
 
-- Node.js 18+
+- Node.js 20+
 - npm
 - Wrangler 4
 
@@ -788,11 +836,6 @@ If this project is helpful to you, you can support future maintenance through th
 
 - WeChat appreciation: scan the QR code
 
-### Partners & Recommendations
-
-If you need airport transfers, business transportation, or private chauffeur services in the Greater Bay Area, you can consider [Hong Kong Chauffeur](https://hkchauffeur.com/), serving Hong Kong, Shenzhen, Guangzhou, Zhuhai, Macau, and other major cities in the region.
-
-
 ## Credits
 
 - [CF-Server-Monitor-Pro](https://github.com/a63414262/CF-Server-Monitor-Pro)
@@ -802,6 +845,7 @@ If you need airport transfers, business transportation, or private chauffeur ser
 - [Chart.js](https://www.chartjs.org/)
 - [Leaflet](https://leafletjs.com/)
 - Thanks to the [NodeSeek](https://www.nodeseek.com/post-763025-1) and [LINUX DO](https://linux.do/) communities for support and promotion
+- [Hong Kong Chauffeur](https://hkchauffeur.com/)
 
 ## License
 
